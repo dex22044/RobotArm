@@ -81,15 +81,17 @@ void NetworkIOThread1Processor() {
 			memcpy(frameData, rawFrame->data[0], 640 * 480 * 3);
 			av_frame_unref(decFrame);
 		}
+
+		free(data);
 	}
 }
 
-float pkt[3];
+float pkt[5];
 
 void UselessThreadProcessor() {
 	while (true) {
 		if (isConnected) {
-			sendto(udpSocket, (char*)pkt, 12, 0, (sockaddr*)&remoteAddr, sizeof(sockaddr_in));
+			sendto(udpSocket, (char*)pkt, 20, 0, (sockaddr*)&remoteAddr, sizeof(sockaddr_in));
 		}
 		Sleep(20);
 	}
@@ -130,7 +132,7 @@ int main(int argc, char** argv)
 	decFrame = av_frame_alloc();
 	decFrame->width = rawFrame->width;
 	decFrame->height = rawFrame->height;
-	decFrame->format = AV_PIX_FMT_YUV420P;
+	decFrame->format = AV_PIX_FMT_YUVJ420P;
 
 	sws_ctx = sws_getContext(decFrame->width,
 		decFrame->height,
@@ -141,7 +143,7 @@ int main(int argc, char** argv)
 		SWS_FAST_BILINEAR,
 		NULL, NULL, NULL);
 	
-	AVCodec* codec = avcodec_find_decoder(AV_CODEC_ID_H264);
+	AVCodec* codec = avcodec_find_decoder(AV_CODEC_ID_MJPEG);
 	codecCtx = avcodec_alloc_context3(codec);
 	avcodec_open2(codecCtx, codec, NULL);
 
@@ -295,12 +297,19 @@ int main(int argc, char** argv)
 		}
 
 		if (window2->selectedController != NULL) {
-			float x, y, z;
+			psmove_poll(window2->selectedController);
+			float x, y, z, trigger;
+			unsigned int buttons = psmove_get_buttons(window2->selectedController);
 			psmove_fusion_get_position(window2->fusion, window2->selectedController, &x, &y, &z);
+			trigger = psmove_get_trigger(window2->selectedController) / 255.0;
 			pkt[0] = x;
 			pkt[1] = y;
 			pkt[2] = z;
-			printf("Position: X: %10.2f Y: %10.2f Z: %10.2f\n", x, y, z);
+			pkt[3] = trigger;
+			if (buttons & Btn_SQUARE) pkt[4] = 1;
+			else if (buttons & Btn_TRIANGLE) pkt[4] = -1;
+			else pkt[4] = 0;
+			printf("Position: X: %10.2f Y: %10.2f Z: %10.2f; trigger: %2.2f; motor: %1.1f\n", x, y, z, trigger, pkt[4]);
 		}
 
 		SDL_RenderPresent(mainRenderer);

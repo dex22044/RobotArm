@@ -98,6 +98,67 @@ void PSMoveWindow::Draw()
 		case Conn_Unknown: text = (char*)"Unknown"; break;
 		}
 
+		PSMove_Battery_Level charge = psmove_get_battery(m.first);
+
+		SDL_Rect r3 = { 0 };
+
+		r3.x = r.x + 3;
+		r3.y = r.y + 45;
+		r3.w = 50;
+		r3.h = 10;
+
+		SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+		SDL_RenderDrawRect(renderer, &r3);
+
+		r3.x += 4;
+		r3.y += 2;
+		r3.h -= 4;
+
+		switch (charge) {
+		case PSMove_Battery_Level::Batt_MIN: {
+			r3.w = 7 * 1;
+			SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255);
+			break;
+		}
+		case PSMove_Battery_Level::Batt_20Percent: {
+			r3.w = 7 * 2;
+			SDL_SetRenderDrawColor(renderer, 255, 127, 0, 255);
+			break;
+		}
+		case PSMove_Battery_Level::Batt_40Percent: {
+			r3.w = 7 * 3;
+			SDL_SetRenderDrawColor(renderer, 255, 127, 0, 255);
+			break;
+		}
+		case PSMove_Battery_Level::Batt_60Percent: {
+			r3.w = 7 * 4;
+			SDL_SetRenderDrawColor(renderer, 255, 255, 0, 255);
+			break;
+		}
+		case PSMove_Battery_Level::Batt_80Percent: {
+			r3.w = 7 * 5;
+			SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);
+			break;
+		}
+		case PSMove_Battery_Level::Batt_MAX: {
+			r3.w = 7 * 6;
+			SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);
+			break;
+		}
+		case PSMove_Battery_Level::Batt_CHARGING_DONE: {
+			r3.w = 7 * 6;
+			SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255);
+			break;
+		}
+		case PSMove_Battery_Level::Batt_CHARGING: {
+			r3.w = 7 * (time(NULL) % 6) + 7;
+			SDL_SetRenderDrawColor(renderer, 255, 127, 0, 255);
+			break;
+		}
+		}
+
+		SDL_RenderFillRect(renderer, &r3);
+
 		SDL_Rect r2 = { 0 };
 
 		SDL_Surface* text1 = TTF_RenderText_Blended(cascadiaCodeFont, (string("Move ") + to_string(i + 1)).c_str(), black);
