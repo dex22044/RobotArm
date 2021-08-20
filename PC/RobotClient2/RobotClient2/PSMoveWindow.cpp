@@ -268,6 +268,7 @@ void PSMoveWindow::Draw()
 					SDL_SetRenderDrawColor(renderer, 56, 56, 56, 255);
 					if(selectedController != NULL) psmove_tracker_disable(tracker, selectedController);
 					selectedController = m.first;
+					psmove_enable_orientation(m.first, PSMove_True);
 					while (psmove_tracker_enable(tracker, m.first) != Tracker_CALIBRATED) continue;
 				}
 			}

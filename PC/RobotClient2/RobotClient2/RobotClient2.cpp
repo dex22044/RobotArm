@@ -7,6 +7,9 @@
 #include <psmove.h>
 #include <psmove_tracker.h>
 #include <psmove_fusion.h>
+#include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
+#include <glm/gtx/euler_angles.hpp>
 
 #include "PSMoveWindow.h"
 #include "GUIBaseElements.h"
@@ -72,6 +75,8 @@ void NetworkIOThread1Processor() {
 			}
 		}
 
+		//int len = recv(udpSocket, buf, 65500, 0);
+		//printf("Length: %dbytes\n", len);
 		AVPacket pkt = { 0 };
 		av_packet_from_data(&pkt, (uint8_t*)data, len);
 		int isDecoded = 0;
@@ -86,7 +91,7 @@ void NetworkIOThread1Processor() {
 	}
 }
 
-float pkt[5];
+float pkt[8];
 
 void UselessThreadProcessor() {
 	while (true) {
@@ -117,7 +122,7 @@ int main(int argc, char** argv)
 	SDL_Init(SDL_INIT_VIDEO);
 	TTF_Init();
 
-	SDL_Window* mainWindow = SDL_CreateWindow("RobotClient", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 700, 600, SDL_WINDOW_RESIZABLE);
+	SDL_Window* mainWindow = SDL_CreateWindow("RobotClient", 100, 100, 700, 600, SDL_WINDOW_RESIZABLE);
 	SDL_Renderer* mainRenderer = SDL_CreateRenderer(mainWindow, -1, SDL_RENDERER_ACCELERATED);
 #pragma endregion
 #pragma region Video decoder initialization
@@ -301,6 +306,9 @@ int main(int argc, char** argv)
 			float x, y, z, trigger;
 			unsigned int buttons = psmove_get_buttons(window2->selectedController);
 			psmove_fusion_get_position(window2->fusion, window2->selectedController, &x, &y, &z);
+			glm::quat orientation;
+			psmove_get_orientation(window2->selectedController, &orientation.w, &orientation.x, &orientation.y, &orientation.z);
+			glm::vec3 eulerZXY = glm::eulerAngles(orientation);
 			trigger = psmove_get_trigger(window2->selectedController) / 255.0;
 			pkt[0] = x;
 			pkt[1] = y;
@@ -309,7 +317,7 @@ int main(int argc, char** argv)
 			if (buttons & Btn_SQUARE) pkt[4] = 1;
 			else if (buttons & Btn_TRIANGLE) pkt[4] = -1;
 			else pkt[4] = 0;
-			printf("Position: X: %10.2f Y: %10.2f Z: %10.2f; trigger: %2.2f; motor: %1.1f\n", x, y, z, trigger, pkt[4]);
+			printf("Position: X: %10.2f Y: %10.2f Z: %10.2f; orientation: X: %10.2f Y: %10.2f Z: %10.2f W: %10.2f; trigger: %2.2f; motor: %1.1f\n", x, y, z, orientation.x, orientation.y, orientation.z, orientation.w, trigger, pkt[4]);
 		}
 
 		SDL_RenderPresent(mainRenderer);
