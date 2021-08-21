@@ -92,6 +92,7 @@ void NetworkIOThread1Processor() {
 }
 
 float pkt[8];
+float cx, cy, cz;
 
 void UselessThreadProcessor() {
 	while (true) {
@@ -306,6 +307,14 @@ int main(int argc, char** argv)
 			float x, y, z, trigger;
 			unsigned int buttons = psmove_get_buttons(window2->selectedController);
 			psmove_fusion_get_position(window2->fusion, window2->selectedController, &x, &y, &z);
+			if (buttons & Btn_MOVE) {
+				cx = x;
+				cy = y;
+				cz = z;
+			}
+			x -= cx;
+			y -= cy;
+			z -= cz;
 			glm::quat orientation;
 			psmove_get_orientation(window2->selectedController, &orientation.w, &orientation.x, &orientation.y, &orientation.z);
 			glm::vec3 eulerZXY = glm::eulerAngles(orientation);

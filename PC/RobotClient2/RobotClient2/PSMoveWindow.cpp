@@ -12,7 +12,7 @@ PSMoveWindow::PSMoveWindow()
 	settings.color_mapping_max_age = 0;
 	settings.exposure_mode = Exposure_LOW;
 	tracker = psmove_tracker_new_with_settings(&settings);
-	fusion = psmove_fusion_new(tracker, 1, 1000);
+	fusion = psmove_fusion_new(tracker, 5, 500);
 
 	camTex = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGB24, SDL_TEXTUREACCESS_STREAMING, 640, 480);
 }
