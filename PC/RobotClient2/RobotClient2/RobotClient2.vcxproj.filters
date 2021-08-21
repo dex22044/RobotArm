@@ -21,12 +21,18 @@
     <ClInclude Include="PSMoveWindow.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="ArmIK.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="PSMoveWindow.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="RobotClient2.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ArmIK.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

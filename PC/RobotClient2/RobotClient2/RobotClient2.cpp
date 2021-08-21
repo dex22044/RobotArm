@@ -14,6 +14,13 @@
 #include "PSMoveWindow.h"
 #include "GUIBaseElements.h"
 
+#include "ArmIK.h"
+
+#include <gl/GL.h>
+#include <gl/GLU.h>
+#pragma comment(lib, "opengl32.lib")
+#pragma comment(lib, "glu32.lib")
+
 #include <winsock.h>
 #pragma comment(lib, "ws2_32.lib")
 
@@ -32,7 +39,7 @@ static float map_val(float x, float in_min, float in_max, float out_min, float o
 	return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
 
-#define DEG2RAD 0.017453292;
+#define DEG2RAD 0.017453292
 
 queue<pair<int, char*>> RXQueue;
 SOCKET leSocket;
@@ -228,6 +235,17 @@ int main(int argc, char** argv)
 	thread secondWindowThread(SecondWindowThreadProcessor);
 #pragma endregion
 
+	SDL_Window* win2 = SDL_CreateWindow("IK", 100, 100, 600, 600, SDL_WINDOW_OPENGL);
+	SDL_GLContext glctx = SDL_GL_CreateContext(win2);
+
+	ArmIK* arm = new ArmIK();
+	arm->AddJoint(160);
+	arm->AddJoint(215);
+
+	glViewport(0, 0, 600, 600);
+	glClearColor(0, 0, 0, 1);
+	gluOrtho2D(-300, 300, 300, -300);
+
 	while (true) {
 		SDL_Event ev;
 		key.state = SDL_RELEASED;
@@ -315,6 +333,7 @@ int main(int argc, char** argv)
 			x -= cx;
 			y -= cy;
 			z -= cz;
+			z = -z;
 			glm::quat orientation;
 			psmove_get_orientation(window2->selectedController, &orientation.w, &orientation.x, &orientation.y, &orientation.z);
 			glm::vec3 eulerZXY = glm::eulerAngles(orientation);
@@ -326,7 +345,50 @@ int main(int argc, char** argv)
 			if (buttons & Btn_SQUARE) pkt[4] = 1;
 			else if (buttons & Btn_TRIANGLE) pkt[4] = -1;
 			else pkt[4] = 0;
-			printf("Position: X: %10.2f Y: %10.2f Z: %10.2f; orientation: X: %10.2f Y: %10.2f Z: %10.2f W: %10.2f; trigger: %2.2f; motor: %1.1f\n", x, y, z, orientation.x, orientation.y, orientation.z, orientation.w, trigger, pkt[4]);
+
+			float a = 215;
+			float b = 160;
+			float c = sqrt(x * x + y * y + z * z) * 10;
+
+			float alpha = acos((b * b + c * c - a * a) / (2 * b * c));
+			float gamma = acos((a * a + b * b - c * c) / (2 * a * b));
+
+			glClear(GL_COLOR_BUFFER_BIT);
+
+			glPushMatrix();
+
+			glRotated(180 - alpha / DEG2RAD + 90, 0, 0, 1);
+
+			glBegin(GL_LINE_STRIP);
+			glColor4f(1, 1, 1, 1);
+			glVertex2d(0, 0);
+			glVertex2d(0, b);
+			glEnd();
+
+			glTranslated(0, b, 0);
+
+			glRotated(180 - gamma / DEG2RAD, 0, 0, 1);
+
+			glBegin(GL_LINE_STRIP);
+			glColor4f(1, 1, 1, 1);
+			glVertex2d(0, 0);
+			glVertex2d(0, a);
+			glEnd();
+
+			glPopMatrix();
+
+			glPointSize(10);
+
+			glBegin(GL_POINTS);
+			glVertex2d(c, 0);
+			glEnd();
+
+			printf("Position: X: %10.2f Y: %10.2f Z: %10.2f;\nOrientation: X: %10.2f Y: %10.2f Z: %10.2f W: %10.2f;\nTrigger: %2.2f;\n", x, y, z, orientation.x, orientation.y, orientation.z, orientation.w, trigger);
+			printf("Target X: %10.2f Y: %10.2f\n", 0, 0);
+			printf("Servo 1: %d, servo 2: %d\n", (int)(alpha / DEG2RAD) % 360, (int)(gamma / DEG2RAD) % 360);
+			printf("\n\n");
+
+			SDL_GL_SwapWindow(win2);
 		}
 
 		SDL_RenderPresent(mainRenderer);

@@ -19,10 +19,12 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="ArmIK.h" />
     <ClInclude Include="GUIBaseElements.h" />
     <ClInclude Include="PSMoveWindow.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="ArmIK.cpp" />
     <ClCompile Include="PSMoveWindow.cpp" />
     <ClCompile Include="RobotClient2.cpp" />
   </ItemGroup>
