@@ -1,4 +1,4 @@
 while [ 1 = 1 ]
   do
-    ./a.out
+    sudo ./a.out
   done

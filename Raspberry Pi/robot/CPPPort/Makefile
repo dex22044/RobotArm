@@ -1,0 +1,2 @@
+all:
+	g++ main.cpp ArmIK.cpp StepperMotor.cpp Servo.cpp -l wiringPi -l pthread -l avcodec -l avformat -l avutil -l swscale -L /usr/local/lib/ -l opencv_core -l opencv_videoio -l opencv_imgcodecs -I /usr/local/include/opencv4/

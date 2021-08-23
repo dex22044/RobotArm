@@ -39,6 +39,12 @@ static float map_val(float x, float in_min, float in_max, float out_min, float o
 	return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
 }
 
+double clamp(double x, double a, double b) {
+	if (a <= x && x <= b) return x;
+	if (x < a) return a;
+	return b;
+}
+
 #define DEG2RAD 0.017453292
 
 queue<pair<int, char*>> RXQueue;
@@ -67,13 +73,14 @@ char* frameData;
 
 void NetworkIOThread1Processor() {
 	char* buf = new char[65536];
+	char* data = new char[1048536 * 128];
+	AVPacket pkt = { 0 };
 
 	while (true) {
 		if (!isConnected) continue;
 		int len = 0;
 		recv(leSocket, (char*)&len, 4, 0);
 		int received = 0;
-		char* data = new char[len];
 		while (received < len) {
 			int rl = recv(leSocket, buf, min(65536, len - received), 0);
 			if (rl > 0) {
@@ -84,7 +91,6 @@ void NetworkIOThread1Processor() {
 
 		//int len = recv(udpSocket, buf, 65500, 0);
 		//printf("Length: %dbytes\n", len);
-		AVPacket pkt = { 0 };
 		av_packet_from_data(&pkt, (uint8_t*)data, len);
 		int isDecoded = 0;
 		avcodec_decode_video2(codecCtx, decFrame, &isDecoded, &pkt);
@@ -93,8 +99,6 @@ void NetworkIOThread1Processor() {
 			memcpy(frameData, rawFrame->data[0], 640 * 480 * 3);
 			av_frame_unref(decFrame);
 		}
-
-		free(data);
 	}
 }
 
@@ -104,7 +108,7 @@ float cx, cy, cz;
 void UselessThreadProcessor() {
 	while (true) {
 		if (isConnected) {
-			sendto(udpSocket, (char*)pkt, 20, 0, (sockaddr*)&remoteAddr, sizeof(sockaddr_in));
+			sendto(udpSocket, (char*)pkt, 32, 0, (sockaddr*)&remoteAddr, sizeof(sockaddr_in));
 		}
 		Sleep(20);
 	}
@@ -238,13 +242,13 @@ int main(int argc, char** argv)
 	SDL_Window* win2 = SDL_CreateWindow("IK", 100, 100, 600, 600, SDL_WINDOW_OPENGL);
 	SDL_GLContext glctx = SDL_GL_CreateContext(win2);
 
-	ArmIK* arm = new ArmIK();
-	arm->AddJoint(160);
-	arm->AddJoint(215);
-
 	glViewport(0, 0, 600, 600);
 	glClearColor(0, 0, 0, 1);
 	gluOrtho2D(-300, 300, 300, -300);
+
+	int consoleFrame = 0;
+	bool isEnabled = false;
+	int prevBtns = 0;
 
 	while (true) {
 		SDL_Event ev;
@@ -325,39 +329,45 @@ int main(int argc, char** argv)
 			float x, y, z, trigger;
 			unsigned int buttons = psmove_get_buttons(window2->selectedController);
 			psmove_fusion_get_position(window2->fusion, window2->selectedController, &x, &y, &z);
-			if (buttons & Btn_MOVE) {
+			if (buttons & Btn_MOVE && !(prevBtns & Btn_MOVE)) {
+				isEnabled = !isEnabled;
 				cx = x;
 				cy = y;
 				cz = z;
 			}
+			prevBtns = buttons;
 			x -= cx;
 			y -= cy;
 			z -= cz;
 			z = -z;
+			y *= 3;
 			glm::quat orientation;
 			psmove_get_orientation(window2->selectedController, &orientation.w, &orientation.x, &orientation.y, &orientation.z);
-			glm::vec3 eulerZXY = glm::eulerAngles(orientation);
+			glm::vec3 euler = glm::eulerAngles(orientation);
 			trigger = psmove_get_trigger(window2->selectedController) / 255.0;
 			pkt[0] = x;
 			pkt[1] = y;
 			pkt[2] = z;
 			pkt[3] = trigger;
-			if (buttons & Btn_SQUARE) pkt[4] = 1;
-			else if (buttons & Btn_TRIANGLE) pkt[4] = -1;
-			else pkt[4] = 0;
+			pkt[4] = isEnabled;
 
 			float a = 215;
 			float b = 160;
-			float c = sqrt(x * x + y * y + z * z) * 10;
+			float c = clamp(sqrt(x * x + y * y + z * z) * 10, 100.0f, 350.0f);
 
 			float alpha = acos((b * b + c * c - a * a) / (2 * b * c));
 			float gamma = acos((a * a + b * b - c * c) / (2 * a * b));
+
+			float angle = atan2(clamp(sqrt(x * x + z * z), 10.0f, 1000.0f), y);
+
+			float angle1 = 360 - alpha / DEG2RAD - angle / DEG2RAD + 90;
+			float angle2 = 180 - (alpha + gamma) / DEG2RAD - angle / DEG2RAD + 90;
 
 			glClear(GL_COLOR_BUFFER_BIT);
 
 			glPushMatrix();
 
-			glRotated(180 - alpha / DEG2RAD + 90, 0, 0, 1);
+			glRotated(angle1 - 90, 0, 0, 1);
 
 			glBegin(GL_LINE_STRIP);
 			glColor4f(1, 1, 1, 1);
@@ -367,7 +377,9 @@ int main(int argc, char** argv)
 
 			glTranslated(0, b, 0);
 
-			glRotated(180 - gamma / DEG2RAD, 0, 0, 1);
+			glRotated(-angle1 + 90, 0, 0, 1);
+
+			glRotated(angle2 - 90, 0, 0, 1);
 
 			glBegin(GL_LINE_STRIP);
 			glColor4f(1, 1, 1, 1);
@@ -380,19 +392,29 @@ int main(int argc, char** argv)
 			glPointSize(10);
 
 			glBegin(GL_POINTS);
-			glVertex2d(c, 0);
+			glVertex2d(sqrt(x * x + z * z) * 10, y * 10);
 			glEnd();
+			angle1 -= 180;
 
-			printf("Position: X: %10.2f Y: %10.2f Z: %10.2f;\nOrientation: X: %10.2f Y: %10.2f Z: %10.2f W: %10.2f;\nTrigger: %2.2f;\n", x, y, z, orientation.x, orientation.y, orientation.z, orientation.w, trigger);
-			printf("Target X: %10.2f Y: %10.2f\n", 0, 0);
-			printf("Servo 1: %d, servo 2: %d\n", (int)(alpha / DEG2RAD) % 360, (int)(gamma / DEG2RAD) % 360);
-			printf("\n\n");
+			consoleFrame++;
+			if (consoleFrame == 5) {
+				printf("%s\n", isEnabled ? "ENABLED" : "DISABLED");
+				printf("Position: X: %10.2f Y: %10.2f Z: %10.2f;\nOrientation: X: %10.2f Y: %10.2f Z: %10.2f W: %10.2f;\nTrigger: %2.2f;\n", x, y, z, orientation.x, orientation.y, orientation.z, orientation.w, trigger);
+				printf("Rotation: X: %5.2f Y: %5.2f Z: %5.2f\n", euler.x, euler.y, euler.z);
+				printf("Servo 1: %d, servo 2: %d\n", (int)angle1, (int)angle2);
+				printf("\n\n");
+				consoleFrame = 0;
+			}
+
+			pkt[5] = angle1;
+			pkt[6] = angle2;
+			pkt[7] = euler.z;
 
 			SDL_GL_SwapWindow(win2);
 		}
 
 		SDL_RenderPresent(mainRenderer);
 
-		SDL_Delay(10);
+		SDL_Delay(20);
 	}
 }
