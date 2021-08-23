@@ -102,13 +102,13 @@ void NetworkIOThread1Processor() {
 	}
 }
 
-float pkt[8];
+float pkt[20];
 float cx, cy, cz;
 
 void UselessThreadProcessor() {
 	while (true) {
 		if (isConnected) {
-			sendto(udpSocket, (char*)pkt, 32, 0, (sockaddr*)&remoteAddr, sizeof(sockaddr_in));
+			sendto(udpSocket, (char*)pkt, 36, 0, (sockaddr*)&remoteAddr, sizeof(sockaddr_in));
 		}
 		Sleep(20);
 	}
@@ -409,6 +409,10 @@ int main(int argc, char** argv)
 			pkt[5] = angle1;
 			pkt[6] = angle2;
 			pkt[7] = euler.z;
+
+			if (buttons & Btn_SELECT) pkt[8] = -1;
+			else if (buttons & Btn_START) pkt[8] = 1;
+			else pkt[8] = 0;
 
 			SDL_GL_SwapWindow(win2);
 		}

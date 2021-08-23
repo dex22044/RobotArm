@@ -70,24 +70,26 @@ void MotorsProcessingThreadProcessor() {
 
 int perduinoSerial = -1;
 int step = 0;
+float angleCorrection = 0;
 
 void NetworkIOThread2Processor() {
     ServoData* sdata = new ServoData();
-    float pkt[8];
+    float pkt[20];
     char* cmd = new char[256];
 	while (true) {
         if(!isConnected) continue;
-		int len = recv(udpSockfd, (char*)pkt, 32, 0);
-        if(len != 32) continue;
+		int len = recv(udpSockfd, (char*)pkt, 36, 0);
+        if(len != 36) continue;
+        angleCorrection += pkt[8];
         
         step++;
-        if(step == 10) {
-            sdata->angle1 = min(180, max(0, (int)map_val(pkt[3], 0, 1, 90, 20)));
+        if(step == 5) {
+            sdata->angle1 = min(180, max(0, (int)map_val(pkt[3], 0, 1, 90, 0)));
             sdata->angle2 = min(180, max(0, (int)map_val(pkt[7], 1.57, -1.57, 0, 180)));
             int len = sprintf(cmd, "%d %d %d \n", min(180, max(0, (int)map_val(pkt[3], 0, 1, 90, 20))),
                             min(180, max(0, (int)map_val(pkt[7], 1.57, -1.57, 0, 180))),
-                            -(int)(atan2(-pkt[0], -pkt[2]) / 3.14159 / 2.0 * 6500.0));
-            float c = (int)(atan2(-pkt[0], -pkt[2]) / 3.14159 / 2.0 * 6500.0);
+                            (int)(angleCorrection * 10));
+            //float c = (int)(atan2(-pkt[0], -pkt[2]) / 3.14159 / 2.0 * 6500.0);
             //int len = sprintf(cmd, "90 90 %d \n",
             //                    -(int)c);
             printf("%s\n", cmd);
@@ -134,7 +136,7 @@ int main() {
     
     wiringPiSetupGpio();
 
-    perduinoSerial = serialOpen("/dev/ttyS0", 115200);
+    perduinoSerial = serialOpen("/dev/ttyUSB0", 115200);
     
     servo1 = new Servo(18);
     servo2 = new Servo(13);
@@ -201,6 +203,8 @@ int main() {
 
     sockaddr saRemote = { 0 };
     socklen_t saRemoteLen = 0;
+
+    serialFlush(perduinoSerial);
 
     while(true) {
         if(!isConnected) {
