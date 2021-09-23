@@ -20,11 +20,8 @@ byte addresses[][5] = {"Comp","Arm0"};
 bool role = 0;
 
 void setup() {
-  Serial.begin(115200);
-  Serial.setTimeout(50);
-  Serial.println(F("RF24/examples/GettingStarted"));
+  Serial.begin(57600);
   printf_begin();
-  Serial.println(F("*** PRESS 'T' to begin transmitting to the other node"));
   
   radio.begin();
   radio.setAutoAck(false);
@@ -37,26 +34,28 @@ void setup() {
 
   // Set the PA Level low to prevent power supply related issues since this is a
  // getting_started sketch, and the likelihood of close proximity of the devices. RF24_PA_MAX is default.
-  //radio.setPALevel(RF24_PA_LOW);
+  radio.setPALevel(RF24_PA_LOW);
   
   // Open a writing and reading pipe on each radio, with opposite addresses
   radio.openWritingPipe(addresses[0]);
   radio.openReadingPipe(1,addresses[1]);
+  radio.stopListening();
   
   // Start the radio listening for data
-  radio.startListening();
+  //radio.startListening();
 }
 
 char pkt[32];
 
 char line[128];
-int lineSymbol = 0;
+int lineSym = 0;
+int64_t data[16];
 
 int64_t atoiCustom(char* str) {
   int64_t num = 0;
   int currPos = 0;
   if(str[0] == '-') currPos = 1;
-  while(str[currPos] != '\0') {
+  while(str[currPos] != ',' && str[currPos] != '\0') {
     num = num * 10 + (str[currPos] - '0');
     currPos++;
   }
@@ -67,43 +66,31 @@ int64_t atoiCustom(char* str) {
 void loop() {
   if(Serial.available()) {
     char c = Serial.read();
-    line[lineSymbol] = c;
-    lineSymbol++;
+    line[lineSym] = c;
+    lineSym++;
     if(c == '\n') {
-      line[lineSymbol] = '\0';
-      lineSymbol = 0;
-      char num1[16];
-      char num2[16];
-      char num3[16];
-      int currNum = 0;
-      int numSym = 0;
-      int currLineSym = 0;
-      while(line[currLineSym] != '\0') {
-        if(currNum == 0) num1[numSym] = line[currLineSym];
-        if(currNum == 1) num2[numSym] = line[currLineSym];
-        if(currNum == 2) num3[numSym] = line[currLineSym];
-
-        if(line[currLineSym] == ' ') {
-          if(currNum == 0) num1[numSym] = '\0';
-          if(currNum == 1) num2[numSym] = '\0';
-          if(currNum == 2) num3[numSym] = '\0';
-          currNum++;
-          numSym = -1;
-        }
-        numSym++;
-        currLineSym++;
+      line[lineSym - 1] = '\0';
+      lineSym = 0;
+      //Serial.println(line);
+  
+      int count = 0;
+      char* offset = line;
+      while(true) {
+        data[count] = atoiCustom(offset);
+        count++;
+        offset = strchr(offset, ',');
+        if(offset) offset++;
+        else break;
       }
-      pkt[0] = atoiCustom(num1);
-      pkt[1] = atoiCustom(num2);
-      ((long*)(pkt + 2))[0] = atoiCustom(num3);
-      //SerialPrintf("1:%d 2:%d 3:%d\n", atoiCustom(num1), atoiCustom(num2), atoiCustom(num3));
+      pkt[0] = data[0];
+      pkt[1] = data[1];
+      ((long*)(pkt + 2))[0] = (long)data[2];
+    
+      if (!radio.write( pkt, 32 )){
+         Serial.println(F("failed"));
+      }
+          
+      //radio.startListening();
     }
   }
-  
-    radio.stopListening();
-    if (!radio.write( pkt, 32 )){
-       Serial.println(F("failed"));
-    }
-        
-    radio.startListening();
 }

@@ -1,10 +1,10 @@
 #include "motorInterface.h"
 
 int serialfd;
-char line[256];
+char line[64];
 
 void initInterface() {
-    serialfd = open("/dev/ttyACM0", O_RDWR | O_NOCTTY | O_SYNC);
+    serialfd = open("/dev/ttyACM0", O_RDWR | O_NOCTTY | O_NONBLOCK);
 
     {
         struct termios tty;
@@ -14,8 +14,8 @@ void initInterface() {
             std::cout << "Error " << errno << " from tcgetattr: " << strerror(errno) << "\n";
         }
 
-        cfsetospeed (&tty, B115200);
-        cfsetispeed (&tty, B115200);
+        cfsetospeed (&tty, B57600);
+        cfsetispeed (&tty, B57600);
         tty.c_cflag     &=  ~PARENB;
         tty.c_cflag     &=  ~CSTOPB;
         tty.c_cflag     &=  ~CSIZE;
@@ -24,7 +24,7 @@ void initInterface() {
         tty.c_lflag     =   0;
         tty.c_oflag     =   0;
         tty.c_cc[VMIN]  =   0;
-        tty.c_cc[VTIME] =   5;
+        tty.c_cc[VTIME] =   1;
 
         tty.c_cflag     |=  CREAD | CLOCAL;
         tty.c_iflag     &=  ~(IXON | IXOFF | IXANY);
@@ -41,11 +41,6 @@ void initInterface() {
 }
 
 void writeMotors(int servo1, int servo2, int stepper) {
-    while(true) {
-        int s1, s2;
-        std::cin >> s1 >> s2;
-        if(s1 < 0) exit(0);
-        int lineLen = snprintf(line, 256, "%d %d 0 \n", s1, s2);
-        write(serialfd, line, lineLen);
-    }
+    int lineLen = snprintf(line, 63, "%d,%d,%d\n", servo1, servo2, stepper);
+    if(lineLen > 2 && lineLen < 32) write(serialfd, line, lineLen);
 }

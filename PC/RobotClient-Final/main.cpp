@@ -3,12 +3,16 @@
 #include <cassert>
 #include <gtk/gtk.h>
 #include <psmoveapi.h>
+#include <psmove_tracker.h>
+#include <psmove_fusion.h>
 #include <vector>
 #include <thread>
 #include <string>
 #include <unistd.h>
 #include <opencv2/opencv.hpp>
 #include "motorInterface.h"
+
+#define DEG2RAD 0.01745329251
 
 int prevPages = 0;
 
@@ -25,15 +29,28 @@ GtkScale* psEyeImageGainSlider;
 GtkScale* psEyeImageExposureSlider;
 
 GtkButton* psMoveSelectControllerBtn;
-GtkColorChooserWidget* psMoveColorSelector;
 
 using namespace std;
 using namespace cv;
 
 VideoCapture remoteCam;
-VideoCapture localCam;
+PSMoveTracker* localCam;
+PSMoveFusion* localCamFusion;
+
+vector<PSMove*> connectedMoveControllers;
+PSMove* selectedController;
 
 bool running = true;
+bool capFlag = false;
+
+float map_val(float x, float in_min, float in_max, float out_min, float out_max)
+{
+  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
+struct ColorRGB {
+    unsigned char r, g, b;
+};
 
 void remoteVideoUpdateThreadProc() {
     uchar* pixels = gdk_pixbuf_get_pixels(remoteCamPixbuf);
@@ -48,16 +65,28 @@ void remoteVideoUpdateThreadProc() {
     }
 }
 
+int cnt = 0;
+
 void localVideoUpdateThreadProc() {
     uchar* pixels = gdk_pixbuf_get_pixels(localCamPixbuf);
     int width = gdk_pixbuf_get_width(localCamPixbuf);
     int height = gdk_pixbuf_get_height(localCamPixbuf);
-    cv::Mat camImg;
-    cv::Mat rgbCamImg;
+    float x = 0, y = 0, z = 0;
     while(running) {
-        localCam >> camImg;
-        cvtColor(camImg, rgbCamImg, COLOR_RGB2BGR);
-        memcpy(pixels, rgbCamImg.data, width * height * 3);
+        psmove_tracker_update_image(localCam);
+        psmove_tracker_update(localCam, NULL);
+        psmove_tracker_annotate(localCam);
+        PSMoveTrackerRGBImage image = psmove_tracker_get_image(localCam);
+
+        cnt++;
+        if(cnt >= 1 && selectedController != NULL) {
+            psmove_fusion_get_position(localCamFusion, selectedController, &x, &y, &z);
+            writeMotors(map_val(x, -10, 10, 0, 180), map_val(y, -10, 10, 0, 180), 0);
+            cnt = 0;
+        }
+
+        memcpy(pixels, image.data, width * height * 3);
+        capFlag = true;
     }
 }
 
@@ -65,9 +94,6 @@ void quit() {
     running = false;
     exit(0);
 }
-
-vector<PSMove*> connectedMoveControllers;
-PSMove* selectedController;
 
 void psMoveRefreshControllers() {
     for(int i = 0; i < connectedMoveControllers.size(); i++) {
@@ -90,48 +116,36 @@ void psMoveRefreshControllers() {
 void psMoveSelectController() {
     int idx = gtk_combo_box_get_active(GTK_COMBO_BOX(psMoveSelectorComboBox));
     if(idx == -1) return;
+    if(selectedController != NULL) psmove_tracker_disable(localCam, selectedController);
+    psmove_tracker_enable(localCam, connectedMoveControllers[idx]);
     selectedController = connectedMoveControllers[idx];
-}
-
-void psMoveSetColor() {
-    if(selectedController == NULL) return;
-    char r = 0, g = 0, b = 0;
-    GdkRGBA col = {0};
-    gtk_color_chooser_get_rgba(GTK_COLOR_CHOOSER(psMoveColorSelector), &col);
-    r = col.red * 255;
-    g = col.green * 255;
-    b = col.blue * 255;
-    psmove_set_leds(selectedController, r, g, b);
-    psmove_update_leds(selectedController);
-}
-
-void setGain() {
-    localCam.set(CAP_PROP_GAIN, gtk_range_get_value(GTK_RANGE(psEyeImageGainSlider)));
-}
-
-void setExposure() {
-    system((string("v4l2-ctl -d /dev/video1 --set-ctrl auto_exposure=1 --set-ctrl exposure=")
-            + to_string((int)gtk_range_get_value(GTK_RANGE(psEyeImageExposureSlider)))).c_str());
 }
 
 int main(int argc, char** argv)
 {
-    remoteCam.open("/dev/video0");
+    remoteCam.open("/dev/v4l/by-id/usb-ARKMICRO_USB2.0_PC_CAMERA-video-index0");
     if(!remoteCam.isOpened()) {
-        cout << "/dev/video0 is not detected\n";
+        cout << "RC receiver is not detected\n";
         exit(-1);
     }
 
-    localCam.open("/dev/video1");
-    if(!localCam.isOpened()) {
-        cout << "/dev/video1 is not detected\n";
+    PSMoveTrackerSettings settings;
+    psmove_tracker_settings_set_default(&settings);
+    settings.color_mapping_max_age = 0;
+	settings.exposure_mode = Exposure_LOW;
+	settings.camera_mirror = PSMove_False;
+    localCam = psmove_tracker_new_with_camera_and_settings(0, &settings);
+    if(localCam == NULL) {
+        cout << "PS3Eye is not detected\n";
         exit(-1);
     }
 
-    system("v4l2-ctl -d /dev/video1 --set-ctrl auto_exposure=1 --set-ctrl exposure=20");
+    localCamFusion = psmove_fusion_new(localCam, 5, 500);
+
+    initInterface();
 
     remoteCamPixbuf = gdk_pixbuf_new(GDK_COLORSPACE_RGB, false, 8, remoteCam.get(CAP_PROP_FRAME_WIDTH), remoteCam.get(CAP_PROP_FRAME_HEIGHT));
-    localCamPixbuf = gdk_pixbuf_new(GDK_COLORSPACE_RGB, false, 8, localCam.get(CAP_PROP_FRAME_WIDTH), localCam.get(CAP_PROP_FRAME_HEIGHT));
+    localCamPixbuf = gdk_pixbuf_new(GDK_COLORSPACE_RGB, false, 8, 640, 480);
 
     psmove_init(PSMOVE_CURRENT_VERSION);
 
@@ -139,35 +153,25 @@ int main(int argc, char** argv)
     GtkBuilder* builder = gtk_builder_new();
     gtk_builder_add_from_file(builder, "Windows.glade", NULL);
 
-    GObject* window1 = gtk_builder_get_object(builder, "window1");
-    GObject* window2 = gtk_builder_get_object(builder, "window2");
+    GObject* window = gtk_builder_get_object(builder, "window");
     remoteCamBox = GTK_IMAGE(gtk_builder_get_object(builder, "remoteCamBox"));
     localCamBox = GTK_IMAGE(gtk_builder_get_object(builder, "localCamBox"));
     psMoveSelectorComboBox = GTK_COMBO_BOX_TEXT(gtk_builder_get_object(builder, "psMoveSelectorComboBox"));
     psMoveRefreshBtn = GTK_BUTTON(gtk_builder_get_object(builder, "psMoveRefreshBtn"));
-    psEyeImageGainSlider = GTK_SCALE(gtk_builder_get_object(builder, "psEyeImageGainSlider"));
-    psEyeImageExposureSlider = GTK_SCALE(gtk_builder_get_object(builder, "psEyeImageExposureSlider"));
     psMoveSelectControllerBtn = GTK_BUTTON(gtk_builder_get_object(builder, "psMoveSelectControllerBtn"));
-    psMoveColorSelector = GTK_COLOR_CHOOSER_WIDGET(gtk_builder_get_object(builder, "psMoveColorSelector"));
 
-    gtk_widget_show(GTK_WIDGET(window1));
-    gtk_widget_show(GTK_WIDGET(window2));
+    gtk_widget_show(GTK_WIDGET(window));
 
-    g_signal_connect(window1, "destroy", G_CALLBACK(quit), NULL);
+    g_signal_connect(window, "destroy", G_CALLBACK(quit), NULL);
     g_signal_connect(psMoveRefreshBtn, "clicked", G_CALLBACK(psMoveRefreshControllers), NULL);
-    g_signal_connect(psEyeImageGainSlider, "value-changed", G_CALLBACK(setGain), NULL);
-    g_signal_connect(psEyeImageExposureSlider, "value-changed", G_CALLBACK(setExposure), NULL);
     g_signal_connect(psMoveSelectControllerBtn, "clicked", G_CALLBACK(psMoveSelectController), NULL);
     
     thread remoteVideoUpdateThread(remoteVideoUpdateThreadProc);
     thread localVideoUpdateThread(localVideoUpdateThreadProc);
 
-    int colorUpdateFrameCounter = 0;
+    int positionUpdateCounter = 0;
 
     while(running) {
-        colorUpdateFrameCounter++;
-        if(colorUpdateFrameCounter >= 10) psMoveSetColor();
-
         gtk_image_set_from_pixbuf(remoteCamBox, remoteCamPixbuf);
         gtk_image_set_from_pixbuf(localCamBox, localCamPixbuf);
         while (gtk_events_pending()) gtk_main_iteration();

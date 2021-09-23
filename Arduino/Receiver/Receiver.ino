@@ -23,13 +23,14 @@ Servo armServo;
 Servo forearmServo;
 
 char pkt[32];
-volatile long currStep = 0;
-volatile long targStep = 0;
+volatile int64_t currStep = 0;
+volatile int64_t targStep = 0;
 
 void setup() {
   armServo.attach(2);
   forearmServo.attach(3);
-  Serial.begin(115200);
+  Serial.begin(230400);
+  Serial.println("shiiiiiiiiiiiiiit");
   printf_begin();
   
   radio.begin();
@@ -79,10 +80,7 @@ ISR(TIMER0_A) {
 
 void loop() {
     if( radio.available()){
-                                                                    // Variable for the received timestamp
-      while (radio.available()) {                                   // While there is data ready
-        radio.read( pkt, 32 );             // Get the payload
-      }
+      radio.read( pkt, 32 );
       armServo.write((unsigned char) pkt[0]);
       forearmServo.write((unsigned char) pkt[1]);
       targStep = ((long*)(pkt + 2))[0];
