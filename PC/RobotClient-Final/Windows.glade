@@ -109,7 +109,18 @@
           </packing>
         </child>
         <child>
-          <placeholder/>
+          <object class="GtkGLArea" id="glArea">
+            <property name="width_request">640</property>
+            <property name="height_request">360</property>
+            <property name="visible">True</property>
+            <property name="app_paintable">True</property>
+            <property name="can_focus">False</property>
+            <property name="auto_render">False</property>
+          </object>
+          <packing>
+            <property name="left_attach">0</property>
+            <property name="top_attach">1</property>
+          </packing>
         </child>
       </object>
     </child>

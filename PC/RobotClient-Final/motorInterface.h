@@ -10,4 +10,4 @@
 #include <termios.h>    // POSIX terminal control definitions
 
 void initInterface();
-void writeMotors(int servo1, int servo2, int stepper);
+void writeMotors(int servo1, int servo2, int servo3, int servo4, int stepper);

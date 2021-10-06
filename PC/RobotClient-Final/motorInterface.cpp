@@ -4,7 +4,7 @@ int serialfd;
 char line[64];
 
 void initInterface() {
-    serialfd = open("/dev/ttyACM0", O_RDWR | O_NOCTTY | O_NONBLOCK);
+    serialfd = open("/dev/ttyACM0", O_RDWR | O_NOCTTY);
 
     {
         struct termios tty;
@@ -40,7 +40,7 @@ void initInterface() {
     }
 }
 
-void writeMotors(int servo1, int servo2, int stepper) {
-    int lineLen = snprintf(line, 63, "%d,%d,%d\n", servo1, servo2, stepper);
-    if(lineLen > 2 && lineLen < 32) write(serialfd, line, lineLen);
+void writeMotors(int servo1, int servo2, int servo3, int servo4, int stepper) {
+    int lineLen = snprintf(line, 63, "%d,%d,%d,%d,%d\n", servo1, servo2, servo3, servo4, stepper);
+    write(serialfd, line, lineLen);
 }

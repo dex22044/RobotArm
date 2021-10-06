@@ -21,6 +21,8 @@ byte addresses[][5] = {"Comp","Arm0"};
 
 Servo armServo;
 Servo forearmServo;
+Servo servo3;
+Servo servo4;
 
 char pkt[32];
 volatile int64_t currStep = 0;
@@ -29,6 +31,8 @@ volatile int64_t targStep = 0;
 void setup() {
   armServo.attach(2);
   forearmServo.attach(3);
+  servo3.attach(4);
+  servo4.attach(5);
   Serial.begin(230400);
   Serial.println("shiiiiiiiiiiiiiit");
   printf_begin();
@@ -83,11 +87,8 @@ void loop() {
       radio.read( pkt, 32 );
       armServo.write((unsigned char) pkt[0]);
       forearmServo.write((unsigned char) pkt[1]);
-      targStep = ((long*)(pkt + 2))[0];
-      Serial.print((int)((unsigned char)pkt[0]));
-      Serial.print(" ");
-      Serial.print((int)((unsigned char)pkt[1]));
-      Serial.print(" ");
-      Serial.println((int)targStep);
+      servo3.write((unsigned char) pkt[2]);
+      servo4.write((unsigned char) pkt[3]);
+      targStep = ((long*)(pkt + 4))[0];
    }
 }

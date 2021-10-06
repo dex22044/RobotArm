@@ -4,7 +4,9 @@ client:
 	-I /usr/local/include/psmoveapi \
 	-I /usr/include/gtk-3.0 \
 	-I ~/opencv3/opencv/build/include/ \
+	-I /usr/include/glm/ \
 	-L ~/opencv3/opencv/build/lib/ \
 	-L /usr/local/lib/aarch64-linux-gnu/ \
-	-l gtk-3 -l psmoveapi -l psmoveapi_tracker -l opencv_core -l opencv_videoio -l opencv_imgproc -l opencv_highgui \
+	-L /usr/lib/aarch64-linux-gnu/ \
+	-l gtk-3 -l GL -l GLU -l epoxy -l glfw -l psmoveapi -l psmoveapi_tracker -l opencv_core -l opencv_videoio -l opencv_imgproc -l opencv_highgui \
 	`pkg-config --cflags --libs gtk+-3.0`
