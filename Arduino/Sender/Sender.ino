@@ -86,7 +86,8 @@ void loop() {
       pkt[1] = data[1];
       pkt[2] = data[2];
       pkt[3] = data[3];
-      ((long*)(pkt + 4))[0] = (long)data[4];
+      pkt[4] = data[4];
+      ((long*)(pkt + 5))[0] = (long)data[5];
     
       if (!radio.write( pkt, 32 )){
          Serial.println(F("failed"));
