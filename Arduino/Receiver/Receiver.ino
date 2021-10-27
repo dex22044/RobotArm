@@ -36,13 +36,12 @@ enum MICROSTEP_MODE {
 char microstep = MS_1;
 
 void setup() {
-  digitalWrite(A5, 1);
   servo1.attach(2);
   servo2.attach(3);
   servo3.attach(4);
   servo4.attach(5);
   servo5.attach(6);
-  Serial.begin(230400);
+  Serial.begin(57600);
   Serial.println("shiiiiiiiiiiiiiit");
   printf_begin();
   
@@ -55,7 +54,7 @@ void setup() {
 
   radio.printDetails();
   
-  radio.openWritingPipe(addresses[1]);
+  //radio.openWritingPipe(addresses[1]);
   radio.openReadingPipe(1,addresses[0]);
   
   // Start the radio listening for data
@@ -67,6 +66,8 @@ void setup() {
   pinMode(A3, OUTPUT);
   pinMode(A4, OUTPUT);
   pinMode(A5, OUTPUT);
+  
+  digitalWrite(A5, 1);
   
   digitalWrite(A4, microstep & 0b1);
   digitalWrite(A3, microstep & 0b10);
@@ -96,13 +97,15 @@ ISR(TIMER0_A) {
 }
 
 void loop() {
-    if( radio.available()){
-      radio.read( pkt, 32 );
-      servo1.write((unsigned char) pkt[0]);
-      servo2.write((unsigned char) pkt[1]);
-      servo3.write((unsigned char) pkt[2]);
-      servo4.write((unsigned char) pkt[3]);
-      servo5.write((unsigned char) pkt[3]);
+    delay(50);
+    while(radio.available()){
+      radio.read(pkt, 32);
+      servo1.write((unsigned char)pkt[0]);
+      servo2.write((unsigned char)pkt[1]);
+      servo3.write((unsigned char)pkt[2]);
+      servo4.write((unsigned char)pkt[3]);
+      servo5.write((unsigned char)pkt[4]);
       targStep = ((long*)(pkt + 5))[0];
+      printf("%d %d %d %d %d %d\n", (unsigned char)pkt[0], (unsigned char)pkt[1], (unsigned char)pkt[2], (unsigned char)pkt[3], (unsigned char)pkt[4], targStep);
    }
 }
