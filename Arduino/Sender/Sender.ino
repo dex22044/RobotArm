@@ -92,7 +92,9 @@ void loop() {
       if (!radio.write( pkt, 32 )){
          Serial.println(F("failed"));
       }
-          
+      printf("%d %d %d %d %d %d\n",
+        data[0], data[1], data[2],
+        data[3], data[4], data[5]);   
       //radio.startListening();
     }
   }
