@@ -17,6 +17,22 @@
 #include <GLFW/glfw3.h>
 #include "motorInterface.h"
 
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <fcntl.h>
+#include <cstdio>
+
+bool SetSocketBlockingEnabled(int fd, bool blocking)
+{
+   if (fd < 0) return false;
+
+   int flags = fcntl(fd, F_GETFL, 0);
+   if (flags == -1) return false;
+   flags = blocking ? (flags & ~O_NONBLOCK) : (flags | O_NONBLOCK);
+   return (fcntl(fd, F_SETFL, flags) == 0) ? true : false;
+}
+
 #define DEG2RAD 0.01745329251
 
 int prevPages = 0;
@@ -35,6 +51,8 @@ GtkScale* psEyeImageExposureSlider;
 
 GtkButton* psMoveSelectControllerBtn;
 
+GtkListBox* pointsListBox;
+
 using namespace std;
 using namespace cv;
 
@@ -44,6 +62,7 @@ PSMoveFusion* localCamFusion;
 
 vector<PSMove*> connectedMoveControllers;
 PSMove* selectedController;
+FILE* voiceSocket = NULL;
 
 bool running = true;
 bool capFlag = false;
@@ -70,9 +89,62 @@ void remoteVideoUpdateThreadProc() {
     }
 }
 
-float x = 0, y = 0, z = 0;
-float cx = 0, cy = 0, cz = 0;
-float angle1 = 0, angle2 = 0;
+void ComputeAngles();
+
+glm::vec3 targPos;
+glm::vec3 movePos;
+glm::vec3 moveCenter;
+float angle1 = 0, angle2 = 0, angle3 = 0;
+vector<glm::vec3> savedPoints;
+int mode = 0;
+int angle4 = 0, angle5 = 0;
+int angleChangeMode = 0;
+
+void AddPoint(glm::vec3 point) {
+    savedPoints.push_back(glm::vec3(point));
+    char textbuf[64];
+    snprintf(textbuf, 64, "Точка %d (%2.2f, %2.2f, %2.2f)", savedPoints.size(), point.x, point.y, point.z);
+    GtkLabel* label = GTK_LABEL(gtk_label_new(textbuf));
+    gtk_widget_show(GTK_WIDGET(label));
+    gtk_list_box_insert(pointsListBox, GTK_WIDGET(label), -1);
+    gtk_list_box_select_row(pointsListBox, gtk_list_box_get_row_at_index(pointsListBox, savedPoints.size() - 1));
+}
+
+glm::vec3 GetSelectedPoint() {
+    int idx = gtk_list_box_row_get_index(gtk_list_box_get_selected_row(pointsListBox));
+    return savedPoints[idx];
+}
+
+void SelectPoint(int pointIdx) {
+    gtk_list_box_select_row(pointsListBox, gtk_list_box_get_row_at_index(pointsListBox, pointIdx));
+}
+
+void SelectPrevPoint() {
+    printf("prev point\n");
+    int idx = gtk_list_box_row_get_index(gtk_list_box_get_selected_row(pointsListBox));
+    idx--;
+    if(idx < 0) idx = savedPoints.size() - 1;
+    gtk_list_box_select_row(pointsListBox, gtk_list_box_get_row_at_index(pointsListBox, idx));
+}
+
+void SelectNextPoint() {
+    printf("next point\n");
+    int idx = gtk_list_box_row_get_index(gtk_list_box_get_selected_row(pointsListBox));
+    idx++;
+    if(idx > savedPoints.size() - 1) idx = 0;
+    gtk_list_box_select_row(pointsListBox, gtk_list_box_get_row_at_index(pointsListBox, idx));
+}
+
+void voiceUpdaterThreadProc() {
+    char speechRecv = -1;
+    while(true) {
+        if(fread(&speechRecv, 1, 1, voiceSocket) > 0) {
+            printf("%c\n", speechRecv);
+            mode = 2;
+            if(speechRecv == '3') SelectPoint(0);
+        }
+    }
+}
 
 void localVideoUpdateThreadProc() {
     uchar* pixels = gdk_pixbuf_get_pixels(localCamPixbuf);
@@ -92,22 +164,62 @@ void localVideoUpdateThreadProc() {
         if(cnt >= 1 && selectedController != NULL) {
             while(psmove_poll(selectedController));
             trigger = psmove_get_trigger(selectedController);
-            psmove_fusion_get_position(localCamFusion, selectedController, &x, &y, &z);
+            psmove_fusion_get_position(localCamFusion, selectedController, &movePos.x, &movePos.y, &movePos.z);
             unsigned int buttons = psmove_get_buttons(selectedController);
 			if (buttons & Btn_MOVE && !(prevButtons & Btn_MOVE)) {
-				//isEnabled = !isEnabled;
-				cx = x;
-				cy = y;
-				cz = z;
+				if(mode == 1) mode = 0;
+                else mode = 1;
+				moveCenter.x = movePos.x;
+				moveCenter.y = movePos.y;
+				moveCenter.z = movePos.z;
 			}
-			prevButtons = buttons;
 
-            x -= cx;
-            y -= cy;
-            z -= cz;
-            y *= 3;
+            movePos.x -= moveCenter.x;
+            movePos.y -= moveCenter.y;
+            movePos.z -= moveCenter.z;
+            movePos.y *= 3;
+
+            if(mode == 2) {
+                glm::vec3 pt = GetSelectedPoint();
+                movePos.x = pt.x;
+                movePos.y = pt.y;
+                movePos.z = pt.z;
+            }
+
+            if(buttons & Btn_CROSS && !(prevButtons & Btn_CROSS)) {
+                AddPoint(movePos);
+            }
+
+            if(buttons & Btn_CIRCLE && !(prevButtons & Btn_CIRCLE)) {
+                mode = 2;
+            }
+
+            if(buttons & Btn_SQUARE && !(prevButtons & Btn_SQUARE)) SelectPrevPoint();
+            if(buttons & Btn_TRIANGLE && !(prevButtons & Btn_TRIANGLE)) SelectNextPoint();
+            if(buttons & Btn_PS && !(prevButtons & Btn_PS)) angleChangeMode ^= 1;
+
+            if(angleChangeMode) {
+                if(buttons & Btn_START) angle4 += 3;
+                if(buttons & Btn_SELECT) angle4 -= 3;
+                if(angle4 < 0) angle4 = 0;
+                if(angle4 > 180) angle4 = 180;
+            }
+            else {
+                if(buttons & Btn_START) angle5+= 3;
+                if(buttons & Btn_SELECT) angle5 -= 3;
+                if(angle5 < 0) angle5 = 0;
+                if(angle5 > 180) angle5 = 180;
+            }
+
+			prevButtons = buttons;
             
-            writeMotors(angle2, angle1, map_val(trigger, 0, 255, 120, 0), 0, 0);
+            movePos.y = -movePos.y;
+
+            ComputeAngles();
+
+            printf("%f\n", angle3);
+            
+            if(mode != 0) writeMotors(angle1, angle2, angle4, angle5, map_val(trigger, 0, 255, 0, 110), map_val(angle3, 0, 360, 0, 200));
             cnt = 0;
         }
 
@@ -156,21 +268,23 @@ GLdouble triangleVerts[] = {
 void ComputeAngles() {
     float a = 215;
     float b = 160;
-    float c = clamp(sqrt(x * x + y * y + z * z) * 10, 100.0f, 350.0f);
+    float c = clamp(sqrt(movePos.x * movePos.x + movePos.y * movePos.y + movePos.z * movePos.z) * 10, 100.0f, 350.0f);
 
     float alpha = acos((b * b + c * c - a * a) / (2 * b * c));
     float gamma = acos((a * a + b * b - c * c) / (2 * a * b));
 
-    float angle = atan2(clamp(sqrt(x * x + z * z), 10.0f, 1000.0f), y);
+    float angle = atan2(clamp(sqrt(movePos.x * movePos.x + movePos.z * movePos.z), 10.0f, 1000.0f), movePos.y);
 
-    float angle1 = 360 - alpha / DEG2RAD - angle / DEG2RAD + 90;
-    float angle2 = 180 - (alpha + gamma) / DEG2RAD - angle / DEG2RAD + 90;
+    angle1 = 360 - alpha / DEG2RAD - angle / DEG2RAD + 90;
+    angle2 = 180 - (alpha + gamma) / DEG2RAD - angle / DEG2RAD + 90;
 
-    angle1 += 90;
     angle2 += 90;
     
-    angle1 -= 270;
-    printf("Servoes: %d %d\n", (int)angle1, (int)angle2);
+    angle1 -= 180;
+
+    angle3 = -atan2(-movePos.x, movePos.z) / DEG2RAD;
+
+    //printf("Servoes: %d %d %d\n", (int)angle1, (int)angle2, (int)angle3);
 }
 
 #pragma region some opengl shit that will be probably deleted later
@@ -291,11 +405,14 @@ GLuint prepareProgram(bool *errorFlagPtr) {
 
 static gboolean render(GtkGLArea *area, GdkGLContext *context)
 {
+    float a = 215;
+    float b = 160;
+
     glClearColor(0, 0, 0, 1);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    glm::vec2 pos1 = glm::vec2(sin(angle1 * DEG2RAD) * b,
-                    cos(angle1 * DEG2RAD) * b);
+    glm::vec2 pos1 = glm::vec2(sin((angle1 - 90)* DEG2RAD) * b,
+                    cos(((angle1 - 90) * DEG2RAD)) * b);
 
     glm::vec2 pos2 = glm::vec2(sin(angle2 * DEG2RAD) * a,
                     cos(angle2 * DEG2RAD) * a)
@@ -311,36 +428,15 @@ static gboolean render(GtkGLArea *area, GdkGLContext *context)
 
 static void on_realize(GtkGLArea *area)
 {
-    // We need to make the context current if we want to
-    // call GL API
     gtk_gl_area_make_current (area);
 
-    // If there were errors during the initialization or
-    // when trying to make the context current, this
-    // function will return a GError for you to catch
     if (gtk_gl_area_get_error (area) != NULL)
         return;
 
-    // You can also use gtk_gl_area_set_error() in order
-    // to show eventual initialization errors on the
-    // GtkGLArea widget itself
     GError *error = NULL;
     
-    init_buffer_objects();
-    if (error != NULL)
-        {
-        gtk_gl_area_set_error (area, error);
-        g_error_free (error);
-        return;
-        }
-    
+    init_buffer_objects();    
     shader = prepareProgram((bool*)&error);
-    if (error != NULL)
-        {
-        gtk_gl_area_set_error (area, error);
-        g_error_free (error);
-        return;
-        }
         
 }
 
@@ -360,7 +456,7 @@ int main(int argc, char** argv) {
     remoteCam.open("/dev/v4l/by-id/usb-ARKMICRO_USB2.0_PC_CAMERA-video-index0");
     if(!remoteCam.isOpened()) {
         cout << "RC receiver is not detected\n";
-        exit(-1);
+        //exit(-1);
     }
 
     PSMoveTrackerSettings settings;
@@ -396,9 +492,15 @@ int main(int argc, char** argv) {
     psMoveRefreshBtn = GTK_BUTTON(gtk_builder_get_object(builder, "psMoveRefreshBtn"));
     psMoveSelectControllerBtn = GTK_BUTTON(gtk_builder_get_object(builder, "psMoveSelectControllerBtn"));
     GtkGLArea* glArea = GTK_GL_AREA(gtk_builder_get_object(builder, "glArea"));
+    pointsListBox = GTK_LIST_BOX(gtk_builder_get_object(builder, "pointsListBox"));
     setup_glarea(GTK_WIDGET(glArea));
 
     gtk_widget_show(GTK_WIDGET(window));
+
+    voiceSocket = popen("/usr/bin/python3 /home/dex22044/RobotArm/PC/RobotClient-Final/speech.py", "r");
+    printf("ass\n");
+
+    AddPoint(glm::vec3(-3.6, -4.46, 11.47));
 
     g_signal_connect(window, "destroy", G_CALLBACK(quit), NULL);
     g_signal_connect(psMoveRefreshBtn, "clicked", G_CALLBACK(psMoveRefreshControllers), NULL);
@@ -407,6 +509,8 @@ int main(int argc, char** argv) {
 
     thread remoteVideoUpdateThread(remoteVideoUpdateThreadProc);
     thread localVideoUpdateThread(localVideoUpdateThreadProc);
+    thread voiceUpdaterThread(voiceUpdaterThreadProc);
+    
 
     while(running) {
         gtk_image_set_from_pixbuf(remoteCamBox, remoteCamPixbuf);

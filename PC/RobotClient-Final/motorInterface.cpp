@@ -40,7 +40,7 @@ void initInterface() {
     }
 }
 
-void writeMotors(int servo1, int servo2, int servo3, int servo4, int stepper) {
-    int lineLen = snprintf(line, 63, "%d,%d,%d,%d,%d\n", servo1, servo2, servo3, servo4, stepper);
+void writeMotors(int servo1, int servo2, int servo3, int servo4, int servo5, int stepper) {
+    int lineLen = snprintf(line, 63, "%d,%d,%d,%d,%d,%d\n", servo1, servo2, servo3, servo4, servo5, stepper);
     write(serialfd, line, lineLen);
 }
