@@ -2,8 +2,6 @@ client:
 	g++ -o app.bin -std=c++17 \
 	main.cpp motorInterface.cpp \
 	-I /usr/local/include/psmoveapi \
-	-I /usr/include/gtk-3.0 \
-	-I ~/opencv3/opencv/build/include/ \
 	-I /usr/include/glm/ \
 	-L ~/opencv3/opencv/build/lib/ \
 	-L /usr/local/lib/aarch64-linux-gnu/ \

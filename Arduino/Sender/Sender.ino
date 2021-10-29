@@ -89,12 +89,12 @@ void loop() {
       pkt[4] = data[4];
       ((long*)(pkt + 5))[0] = (long)data[5];
     
-      if (!radio.write( pkt, 32 )){
+      if (!radio.write(pkt, 32)) {
          Serial.println(F("failed"));
       }
-      printf("%d %d %d %d %d %d\n",
-        data[0], data[1], data[2],
-        data[3], data[4], data[5]);   
+      //printf("%d %d %d %d %d %d\n",
+      //  data[0], data[1], data[2],
+      //  data[3], data[4], data[5]);   
       //radio.startListening();
     }
   }

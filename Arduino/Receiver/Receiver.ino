@@ -33,7 +33,7 @@ enum MICROSTEP_MODE {
   MS_1 = 0, MS_2 = 1, MS_4 = 2, MS_8 = 3, MS_16 = 7
 };
 
-char microstep = MS_1;
+char microstep = MS_4;
 
 void setup() {
   servo1.attach(2);
@@ -73,7 +73,7 @@ void setup() {
   digitalWrite(A3, microstep & 0b10);
   digitalWrite(A2, microstep & 0b100);
   
-  Timer0.setPeriod(5000);
+  Timer0.setPeriod(15000);
   Timer0.enableISR();
   
   digitalWrite(A5, 0);

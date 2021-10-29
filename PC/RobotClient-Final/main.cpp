@@ -1,3 +1,4 @@
+#pragma region includes
 #include <iostream>
 #include <string>
 #include <cassert>
@@ -16,27 +17,18 @@
 #include <GL/glu.h>
 #include <GLFW/glfw3.h>
 #include "motorInterface.h"
-
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <fcntl.h>
 #include <cstdio>
-
-bool SetSocketBlockingEnabled(int fd, bool blocking)
-{
-   if (fd < 0) return false;
-
-   int flags = fcntl(fd, F_GETFL, 0);
-   if (flags == -1) return false;
-   flags = blocking ? (flags & ~O_NONBLOCK) : (flags | O_NONBLOCK);
-   return (fcntl(fd, F_SETFL, flags) == 0) ? true : false;
-}
+#pragma endregion
 
 #define DEG2RAD 0.01745329251
 
 int prevPages = 0;
 
+#pragma region GUI shit
 GdkPixbuf* remoteCamPixbuf;
 GtkImage* remoteCamBox;
 
@@ -52,6 +44,11 @@ GtkScale* psEyeImageExposureSlider;
 GtkButton* psMoveSelectControllerBtn;
 
 GtkListBox* pointsListBox;
+GtkSpinButton* velocityPercentageSpinBox;
+GtkLabel* statusIndicatorLabel;
+GtkSpinButton* cylinderRSpinBox;
+GtkSpinButton* cylinderHSpinBox;
+#pragma endregion
 
 using namespace std;
 using namespace cv;
@@ -66,6 +63,11 @@ FILE* voiceSocket = NULL;
 
 bool running = true;
 bool capFlag = false;
+char coordsTextBuf[256];
+
+int velocityPercentage = 15;
+int cylinderR = 0;
+int cylinderH = 0;
 
 float map_val(float x, float in_min, float in_max, float out_min, float out_max)
 {
@@ -91,135 +93,260 @@ void remoteVideoUpdateThreadProc() {
 
 void ComputeAngles();
 
-glm::vec3 targPos;
-glm::vec3 movePos;
-glm::vec3 moveCenter;
-float angle1 = 0, angle2 = 0, angle3 = 0;
-vector<glm::vec3> savedPoints;
-int mode = 0;
-int angle4 = 0, angle5 = 0;
-int angleChangeMode = 0;
+class ArmTrajectory {
+public:
+    vector<glm::vec3> points;
+    bool isPoint;
+    ArmTrajectory(bool isPoint) : isPoint(isPoint) {};
+};
 
-void AddPoint(glm::vec3 point) {
-    savedPoints.push_back(glm::vec3(point));
-    char textbuf[64];
-    snprintf(textbuf, 64, "Точка %d (%2.2f, %2.2f, %2.2f)", savedPoints.size(), point.x, point.y, point.z);
-    GtkLabel* label = GTK_LABEL(gtk_label_new(textbuf));
-    gtk_widget_show(GTK_WIDGET(label));
-    gtk_list_box_insert(pointsListBox, GTK_WIDGET(label), -1);
-    gtk_list_box_select_row(pointsListBox, gtk_list_box_get_row_at_index(pointsListBox, savedPoints.size() - 1));
+glm::vec3 movePos; // Положение PSMove
+glm::vec3 moveCenter; // Система отсчёта PSMove
+glm::vec3 autoPos; // Положение автономного режима
+glm::vec3 armPos; // Положение руки
+glm::vec3 apprArmPos; // Сглаженное положение руки
+glm::vec3 finArmPos; // Сглаженное положение руки
+vector<ArmTrajectory*> savedTrajectories; // Массив запомненных точек
+int mode = 0; // Режим управления
+float angle1 = 0, angle2 = 0, angle3 = 0; // Углы двух основных серв и шаговика
+int angle4 = 0, angle5 = 0, angleGrabber = 0; // Углы остальных серв
+int angleGrabberAuto = 0; // Угол для автономного управления для захвата
+int angleChangeMode = 0; // Режим изменения углов серв 4 и 5
+ArmTrajectory* currentTrajectory = NULL; // Текущая тректория для записи
+uint64_t trajectoryStartFrame = 0;
+
+glm::vec3 Lerp(glm::vec3 start, glm::vec3 end, float t) {
+    glm::vec3 p = start;
+    p += (end - start) * t;
+    return p;
 }
 
-glm::vec3 GetSelectedPoint() {
-    int idx = gtk_list_box_row_get_index(gtk_list_box_get_selected_row(pointsListBox));
-    return savedPoints[idx];
+#pragma region Grab shit
+
+glm::vec3 boltPoint = glm::vec3(-8.71, -1.79, -4.24); // Положение болта
+
+void GrabBolt() { // Цыганские фокусы (взять болт)
+    int prevMode = mode;
+    mode = 3;
+
+    angle5 = 0;
+    angleGrabberAuto = 0;
+    usleep(300000);
+    autoPos = glm::vec3(boltPoint - glm::vec3(0, 5, 0));
+    usleep(10000000);
+    autoPos = glm::vec3(boltPoint);
+    usleep(1000000);
+    angleGrabberAuto = 100;
+    usleep(1000000);
+    autoPos = glm::vec3(boltPoint - glm::vec3(0, 5, 0));
+    usleep(1000000);
+
+    mode = 1;
 }
 
-void SelectPoint(int pointIdx) {
-    gtk_list_box_select_row(pointsListBox, gtk_list_box_get_row_at_index(pointsListBox, pointIdx));
+void ReleaseBolt() { // Цыганские фокусы (отпустить болт)
+    int prevMode = mode;
+    mode = 3;
+
+
+
+    mode = 1;
 }
 
-void SelectPrevPoint() {
-    printf("prev point\n");
-    int idx = gtk_list_box_row_get_index(gtk_list_box_get_selected_row(pointsListBox));
-    idx--;
-    if(idx < 0) idx = savedPoints.size() - 1;
-    gtk_list_box_select_row(pointsListBox, gtk_list_box_get_row_at_index(pointsListBox, idx));
-}
+#pragma endregion
 
-void SelectNextPoint() {
-    printf("next point\n");
-    int idx = gtk_list_box_row_get_index(gtk_list_box_get_selected_row(pointsListBox));
-    idx++;
-    if(idx > savedPoints.size() - 1) idx = 0;
-    gtk_list_box_select_row(pointsListBox, gtk_list_box_get_row_at_index(pointsListBox, idx));
-}
-
-void voiceUpdaterThreadProc() {
+void voiceUpdaterThreadProc() { // Поток с петухоном и распознованием речи
     char speechRecv = -1;
     while(true) {
         if(fread(&speechRecv, 1, 1, voiceSocket) > 0) {
+            if(mode == 0) continue;
             printf("%c\n", speechRecv);
-            mode = 2;
-            if(speechRecv == '3') SelectPoint(0);
+            if(speechRecv == '3') GrabBolt();
         }
     }
 }
 
-void localVideoUpdateThreadProc() {
-    uchar* pixels = gdk_pixbuf_get_pixels(localCamPixbuf);
-    int width = gdk_pixbuf_get_width(localCamPixbuf);
-    int height = gdk_pixbuf_get_height(localCamPixbuf);
-    char trigger = 0;
-    int buttons = 0;
-    int prevButtons = 0;
-    int cnt = 0;
-    while(running) {
-        psmove_tracker_update_image(localCam);
-        psmove_tracker_update(localCam, NULL);
-        psmove_tracker_annotate(localCam);
-        PSMoveTrackerRGBImage image = psmove_tracker_get_image(localCam);
+#pragma region Positioning shit
+void AddPoint(glm::vec3 point) { // Запомнить точку
+    ArmTrajectory* trj = new ArmTrajectory(true);
+    trj->points.push_back(glm::vec3(point));
+    savedTrajectories.push_back(trj);
+    char textbuf[64];
+    snprintf(textbuf, 64, "Точка %d (%2.2f, %2.2f, %2.2f)", savedTrajectories.size(), point.x, point.y, point.z);
+    GtkLabel* label = GTK_LABEL(gtk_label_new(textbuf));
+    gtk_widget_show(GTK_WIDGET(label));
+    gtk_list_box_insert(pointsListBox, GTK_WIDGET(label), -1);
+    gtk_list_box_select_row(pointsListBox, gtk_list_box_get_row_at_index(pointsListBox, savedTrajectories.size() - 1));
+}
+
+glm::vec3 GetSelectedPoint() { // Взять текущую точку
+    int idx = gtk_list_box_row_get_index(gtk_list_box_get_selected_row(pointsListBox));
+    return savedTrajectories[idx]->points[0];
+}
+
+void StartTrajectory() {
+    currentTrajectory = new ArmTrajectory(false);
+}
+
+void AddTrajectoryPoint(glm::vec3 point) {
+    currentTrajectory->points.push_back(glm::vec3(point));
+}
+
+void SaveTrajectory() {
+    savedTrajectories.push_back(currentTrajectory);
+    char textbuf[64];
+    snprintf(textbuf, 64, "Траектория %d", savedTrajectories.size());
+    GtkLabel* label = GTK_LABEL(gtk_label_new(textbuf));
+    gtk_widget_show(GTK_WIDGET(label));
+    gtk_list_box_insert(pointsListBox, GTK_WIDGET(label), -1);
+    gtk_list_box_select_row(pointsListBox, gtk_list_box_get_row_at_index(pointsListBox, savedTrajectories.size() - 1));
+}
+
+glm::vec3 GetTrajectoryPoint(uint64_t timestamp) {
+    int idx = gtk_list_box_row_get_index(gtk_list_box_get_selected_row(pointsListBox));
+    return savedTrajectories[idx]->points[timestamp];
+}
+
+bool IsTrajectoryPlaying(uint64_t timestamp) {
+    int idx = gtk_list_box_row_get_index(gtk_list_box_get_selected_row(pointsListBox));
+    return savedTrajectories[idx]->points.size() >= timestamp;
+}
+
+void SelectPoint(int pointIdx) { // Выделить точку с индексом pointIdx
+    gtk_list_box_select_row(pointsListBox, gtk_list_box_get_row_at_index(pointsListBox, pointIdx));
+}
+
+void SelectPrevPoint() { // Выделить предыдущую точку
+    printf("prev point\n");
+    int idx = gtk_list_box_row_get_index(gtk_list_box_get_selected_row(pointsListBox));
+    idx--;
+    if(idx < 0) idx = savedTrajectories.size() - 1;
+    gtk_list_box_select_row(pointsListBox, gtk_list_box_get_row_at_index(pointsListBox, idx));
+}
+
+void SelectNextPoint() { // Выделить следующую точку
+    printf("next point\n");
+    int idx = gtk_list_box_row_get_index(gtk_list_box_get_selected_row(pointsListBox));
+    idx++;
+    if(idx > savedTrajectories.size() - 1) idx = 0;
+    gtk_list_box_select_row(pointsListBox, gtk_list_box_get_row_at_index(pointsListBox, idx));
+}
+#pragma endregion
+
+
+
+void localVideoUpdateThreadProc() { // Самые цыганские фокусы
+    uchar* pixels = gdk_pixbuf_get_pixels(localCamPixbuf); // Матрица с картинкой на экране
+    int width = gdk_pixbuf_get_width(localCamPixbuf); // Ширина pixels
+    int height = gdk_pixbuf_get_height(localCamPixbuf); // Высота pixels
+    char trigger = 0; // Значение триггера PSMove
+    int buttons = 0; // Значение кнопок PSMove
+    int prevButtons = 0; // Значение buttons из предыдущего кадра
+    int cnt = 0; // Счётчик кадров для обновления
+    bool isTrajectoryPlaying = false;
+    uint64_t currentFrame = 0;
+    while(running) { // Это цикл, понятно?
+        psmove_tracker_update_image(localCam); // Получить картинку с камеры
+        psmove_tracker_update(localCam, NULL); // Отсленивание PSMove
+        psmove_tracker_annotate(localCam); // Цыганские фокусы
+        PSMoveTrackerRGBImage image = psmove_tracker_get_image(localCam); // Получить матрицу с картинкой с камерой
 
         cnt++;
-        if(cnt >= 1 && selectedController != NULL) {
-            while(psmove_poll(selectedController));
+        if(cnt >= 1 && selectedController != NULL) { // Это условный оператор, понятно?
+            while(psmove_poll(selectedController)); // Получить данные с PSMove
             trigger = psmove_get_trigger(selectedController);
             psmove_fusion_get_position(localCamFusion, selectedController, &movePos.x, &movePos.y, &movePos.z);
             unsigned int buttons = psmove_get_buttons(selectedController);
-			if (buttons & Btn_MOVE && !(prevButtons & Btn_MOVE)) {
-				if(mode == 1) mode = 0;
-                else mode = 1;
-				moveCenter.x = movePos.x;
-				moveCenter.y = movePos.y;
-				moveCenter.z = movePos.z;
-			}
+            if(mode != 4) {
+                if (buttons & Btn_MOVE && !(prevButtons & Btn_MOVE)) { // Установка системы отсчёта
+                    mode++;
+                    if(mode > 3) mode = 0;
+                    if(mode == 1) {
+                        moveCenter.x = movePos.x;
+                        moveCenter.y = movePos.y;
+                        moveCenter.z = movePos.z;
+                    }
+                }
+                
+                movePos.x -= moveCenter.x; // Преобразование из СО камеры в СО роборуки
+                movePos.y -= moveCenter.y;
+                movePos.z -= moveCenter.z;
+                movePos.y *= 3;
+                movePos.y = -movePos.y;
 
-            movePos.x -= moveCenter.x;
-            movePos.y -= moveCenter.y;
-            movePos.z -= moveCenter.z;
-            movePos.y *= 3;
+                if(mode == 1 && buttons & Btn_CROSS && !(prevButtons & Btn_CROSS)) AddPoint(movePos);
 
-            if(mode == 2) {
-                glm::vec3 pt = GetSelectedPoint();
-                movePos.x = pt.x;
-                movePos.y = pt.y;
-                movePos.z = pt.z;
-            }
+                if(mode == 3 && (buttons & Btn_CROSS) && !(prevButtons & Btn_CROSS)) StartTrajectory();
+                if(mode == 3 && (buttons & Btn_CROSS)) AddTrajectoryPoint(movePos);
+                if(mode == 3 && !(buttons & Btn_CROSS) && (prevButtons & Btn_CROSS)) SaveTrajectory();
 
-            if(buttons & Btn_CROSS && !(prevButtons & Btn_CROSS)) {
-                AddPoint(movePos);
-            }
+                if(mode == 2) isTrajectoryPlaying = false;
+                if(mode == 3 && (buttons & Btn_CIRCLE) && !(prevButtons & Btn_CIRCLE)) { 
+                    trajectoryStartFrame = currentFrame;
+                    isTrajectoryPlaying = true;
+                }
 
-            if(buttons & Btn_CIRCLE && !(prevButtons & Btn_CIRCLE)) {
-                mode = 2;
-            }
+                if(isTrajectoryPlaying) movePos = glm::vec3(GetTrajectoryPoint(currentFrame - trajectoryStartFrame));
+                if(isTrajectoryPlaying && !IsTrajectoryPlaying(currentFrame - trajectoryStartFrame)) isTrajectoryPlaying = false;
 
-            if(buttons & Btn_SQUARE && !(prevButtons & Btn_SQUARE)) SelectPrevPoint();
-            if(buttons & Btn_TRIANGLE && !(prevButtons & Btn_TRIANGLE)) SelectNextPoint();
-            if(buttons & Btn_PS && !(prevButtons & Btn_PS)) angleChangeMode ^= 1;
+                if(savedTrajectories.size() > 0 && mode == 2) {
+                    glm::vec3 pt = GetSelectedPoint();
+                    movePos.x = pt.x;
+                    movePos.y = pt.y;
+                    movePos.z = pt.z;
+                }
 
-            if(angleChangeMode) {
-                if(buttons & Btn_START) angle4 += 3;
-                if(buttons & Btn_SELECT) angle4 -= 3;
-                if(angle4 < 0) angle4 = 0;
-                if(angle4 > 180) angle4 = 180;
+                if(buttons & Btn_SQUARE && !(prevButtons & Btn_SQUARE)) SelectPrevPoint();
+                if(buttons & Btn_TRIANGLE && !(prevButtons & Btn_TRIANGLE)) SelectNextPoint();
+                if(buttons & Btn_PS && !(prevButtons & Btn_PS)) angleChangeMode ^= 1;
+
+                if(angleChangeMode) {
+                    if(buttons & Btn_START) angle4 += 3;
+                    if(buttons & Btn_SELECT) angle4 -= 3;
+                    if(angle4 < 0) angle4 = 0;
+                    if(angle4 > 180) angle4 = 180;
+                }
+                else {
+                    if(buttons & Btn_START) angle5+= 3;
+                    if(buttons & Btn_SELECT) angle5 -= 3;
+                    if(angle5 < 0) angle5 = 0;
+                    if(angle5 > 180) angle5 = 180;
+                }
+
+                prevButtons = buttons;
+
+                angleGrabber = map_val(trigger, 0, 255, 110, 0);
+
+                armPos.x = movePos.x;
+                armPos.y = movePos.y;
+                armPos.z = movePos.z;
+
+                printf("move control yes\n");
+                currentFrame++;
             }
             else {
-                if(buttons & Btn_START) angle5+= 3;
-                if(buttons & Btn_SELECT) angle5 -= 3;
-                if(angle5 < 0) angle5 = 0;
-                if(angle5 > 180) angle5 = 180;
+                angleGrabber = angleGrabberAuto;
+                armPos.x = autoPos.x;
+                armPos.y = autoPos.y;
+                armPos.z = autoPos.z;
             }
-
-			prevButtons = buttons;
-            
-            movePos.y = -movePos.y;
 
             ComputeAngles();
 
-            printf("%f\n", angle3);
+            apprArmPos = Lerp(apprArmPos, armPos, map_val(velocityPercentage, 0, 100, 0, 0.15f));
+
+            finArmPos.x = apprArmPos.x;
+            finArmPos.y = apprArmPos.y;
+            finArmPos.z = apprArmPos.z;
             
-            if(mode != 0) writeMotors(angle1, angle2, angle4, angle5, map_val(trigger, 0, 255, 0, 110), map_val(angle3, 0, 360, 0, 200));
+            finArmPos.x = (int)(finArmPos.x * 10) / 10.0;
+            finArmPos.y = (int)(finArmPos.y * 10) / 10.0;
+            finArmPos.z = (int)(finArmPos.z * 10) / 10.0;
+
+            printf("X: %5.3f\tY: %5.3f\tZ: %5.3f\n",
+                    finArmPos.x, finArmPos.y, finArmPos.z);
+            
+            if(mode != 0) writeMotors(angle1, angle2, angle4, angle5, angleGrabber, map_val(angle3, 0, 360, 0, 800));
             cnt = 0;
         }
 
@@ -266,14 +393,16 @@ GLdouble triangleVerts[] = {
 };
 
 void ComputeAngles() {
+    finArmPos *= 20;
+    float y = clamp(finArmPos.y, -cylinderH / 2.0f, cylinderH / 2.0f);
     float a = 215;
     float b = 160;
-    float c = clamp(sqrt(movePos.x * movePos.x + movePos.y * movePos.y + movePos.z * movePos.z) * 10, 100.0f, 350.0f);
+    float c = clamp(sqrt(finArmPos.x * finArmPos.x + y * y + finArmPos.z * finArmPos.z), 60.0f, min(400.0f, (float)cylinderR));
 
     float alpha = acos((b * b + c * c - a * a) / (2 * b * c));
     float gamma = acos((a * a + b * b - c * c) / (2 * a * b));
 
-    float angle = atan2(clamp(sqrt(movePos.x * movePos.x + movePos.z * movePos.z), 10.0f, 1000.0f), movePos.y);
+    float angle = atan2(clamp(sqrt(finArmPos.x * finArmPos.x + finArmPos.z * finArmPos.z), 10.0f, 1000.0f), y);
 
     angle1 = 360 - alpha / DEG2RAD - angle / DEG2RAD + 90;
     angle2 = 180 - (alpha + gamma) / DEG2RAD - angle / DEG2RAD + 90;
@@ -282,7 +411,7 @@ void ComputeAngles() {
     
     angle1 -= 180;
 
-    angle3 = -atan2(-movePos.x, movePos.z) / DEG2RAD;
+    angle3 = -atan2(-armPos.x, armPos.z) / DEG2RAD;
 
     //printf("Servoes: %d %d %d\n", (int)angle1, (int)angle2, (int)angle3);
 }
@@ -493,14 +622,16 @@ int main(int argc, char** argv) {
     psMoveSelectControllerBtn = GTK_BUTTON(gtk_builder_get_object(builder, "psMoveSelectControllerBtn"));
     GtkGLArea* glArea = GTK_GL_AREA(gtk_builder_get_object(builder, "glArea"));
     pointsListBox = GTK_LIST_BOX(gtk_builder_get_object(builder, "pointsListBox"));
+    velocityPercentageSpinBox = GTK_SPIN_BUTTON(gtk_builder_get_object(builder, "velocityPercentageSpinBox"));
+    statusIndicatorLabel = GTK_LABEL(gtk_builder_get_object(builder, "statusIndicatorLabel"));
+    cylinderRSpinBox = GTK_SPIN_BUTTON(gtk_builder_get_object(builder, "cylinderRSpinBox"));
+    cylinderHSpinBox = GTK_SPIN_BUTTON(gtk_builder_get_object(builder, "cylinderHSpinBox"));
     setup_glarea(GTK_WIDGET(glArea));
 
     gtk_widget_show(GTK_WIDGET(window));
 
     voiceSocket = popen("/usr/bin/python3 /home/dex22044/RobotArm/PC/RobotClient-Final/speech.py", "r");
     printf("ass\n");
-
-    AddPoint(glm::vec3(-3.6, -4.46, 11.47));
 
     g_signal_connect(window, "destroy", G_CALLBACK(quit), NULL);
     g_signal_connect(psMoveRefreshBtn, "clicked", G_CALLBACK(psMoveRefreshControllers), NULL);
@@ -510,13 +641,24 @@ int main(int argc, char** argv) {
     thread remoteVideoUpdateThread(remoteVideoUpdateThreadProc);
     thread localVideoUpdateThread(localVideoUpdateThreadProc);
     thread voiceUpdaterThread(voiceUpdaterThreadProc);
-    
 
     while(running) {
         gtk_image_set_from_pixbuf(remoteCamBox, remoteCamPixbuf);
         gtk_image_set_from_pixbuf(localCamBox, localCamPixbuf);
 
         gtk_gl_area_queue_render(glArea);
+
+        velocityPercentage = gtk_spin_button_get_value_as_int(velocityPercentageSpinBox);
+        cylinderR = gtk_spin_button_get_value_as_int(cylinderRSpinBox);
+        cylinderH = gtk_spin_button_get_value_as_int(cylinderHSpinBox);
+
+        switch(mode) {
+            case 0: gtk_label_set_text(statusIndicatorLabel, "Выключен"); break;
+            case 1: gtk_label_set_text(statusIndicatorLabel, "Копир. режим"); break;
+            case 2: gtk_label_set_text(statusIndicatorLabel, "Точечн. режим"); break;
+            case 3: gtk_label_set_text(statusIndicatorLabel, "Траект. режим"); break;
+            case 4: gtk_label_set_text(statusIndicatorLabel, "Авто режим"); break;
+        }
 
         while (gtk_events_pending()) gtk_main_iteration();
 

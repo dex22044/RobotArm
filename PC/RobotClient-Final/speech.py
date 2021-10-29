@@ -30,7 +30,8 @@ with sr.Microphone(device_index=11) as source:
                     ans = cmd
                     ansIdx = index
 
-            print(ansIdx, flush=True, end='')
+            if ansIdx != -1:
+                print(ansIdx, flush=True, end='')
         except sr.UnknownValueError:
             #print('шта?', flush=True)
             pass
