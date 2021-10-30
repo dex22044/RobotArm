@@ -15,7 +15,6 @@
 #include <gtc/quaternion.hpp>
 #include <epoxy/gl.h>
 #include <GL/glu.h>
-#include <GLFW/glfw3.h>
 #include "motorInterface.h"
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -93,9 +92,16 @@ void remoteVideoUpdateThreadProc() {
 
 void ComputeAngles();
 
+class ArmTrajectoryPoint {
+public:
+    glm::vec3 pos;
+    float angle4 = 0, angle5 = 0, angleGrabber = 0;
+    ArmTrajectoryPoint(glm::vec3 pos, float a4, float a5, float ag) : pos(pos), angle4(a4), angle5(a5), angleGrabber(ag) {};
+};
+
 class ArmTrajectory {
 public:
-    vector<glm::vec3> points;
+    vector<ArmTrajectoryPoint> points;
     bool isPoint;
     ArmTrajectory(bool isPoint) : isPoint(isPoint) {};
 };
@@ -167,9 +173,9 @@ void voiceUpdaterThreadProc() { // Поток с петухоном и расп�
 }
 
 #pragma region Positioning shit
-void AddPoint(glm::vec3 point) { // Запомнить точку
+void AddPoint(glm::vec3 point, float a4, float a5, float ag) {
     ArmTrajectory* trj = new ArmTrajectory(true);
-    trj->points.push_back(glm::vec3(point));
+    currentTrajectory->points.push_back(ArmTrajectoryPoint(glm::vec3(point), a4, a5, ag));
     savedTrajectories.push_back(trj);
     char textbuf[64];
     snprintf(textbuf, 64, "Точка %d (%2.2f, %2.2f, %2.2f)", savedTrajectories.size(), point.x, point.y, point.z);
@@ -179,7 +185,7 @@ void AddPoint(glm::vec3 point) { // Запомнить точку
     gtk_list_box_select_row(pointsListBox, gtk_list_box_get_row_at_index(pointsListBox, savedTrajectories.size() - 1));
 }
 
-glm::vec3 GetSelectedPoint() { // Взять текущую точку
+ArmTrajectoryPoint GetSelectedPoint() { // Взять текущую точку
     int idx = gtk_list_box_row_get_index(gtk_list_box_get_selected_row(pointsListBox));
     return savedTrajectories[idx]->points[0];
 }
@@ -188,8 +194,8 @@ void StartTrajectory() {
     currentTrajectory = new ArmTrajectory(false);
 }
 
-void AddTrajectoryPoint(glm::vec3 point) {
-    currentTrajectory->points.push_back(glm::vec3(point));
+void AddTrajectoryPoint(glm::vec3 point, float a4, float a5, float ag) {
+    currentTrajectory->points.push_back(ArmTrajectoryPoint(glm::vec3(point), a4, a5, ag));
 }
 
 void SaveTrajectory() {
@@ -202,7 +208,7 @@ void SaveTrajectory() {
     gtk_list_box_select_row(pointsListBox, gtk_list_box_get_row_at_index(pointsListBox, savedTrajectories.size() - 1));
 }
 
-glm::vec3 GetTrajectoryPoint(uint64_t timestamp) {
+ArmTrajectoryPoint GetTrajectoryPoint(uint64_t timestamp) {
     int idx = gtk_list_box_row_get_index(gtk_list_box_get_selected_row(pointsListBox));
     return savedTrajectories[idx]->points[timestamp];
 }
@@ -274,28 +280,6 @@ void localVideoUpdateThreadProc() { // Самые цыганские фокус�
                 movePos.y *= 3;
                 movePos.y = -movePos.y;
 
-                if(mode == 1 && buttons & Btn_CROSS && !(prevButtons & Btn_CROSS)) AddPoint(movePos);
-
-                if(mode == 3 && (buttons & Btn_CROSS) && !(prevButtons & Btn_CROSS)) StartTrajectory();
-                if(mode == 3 && (buttons & Btn_CROSS)) AddTrajectoryPoint(movePos);
-                if(mode == 3 && !(buttons & Btn_CROSS) && (prevButtons & Btn_CROSS)) SaveTrajectory();
-
-                if(mode == 2) isTrajectoryPlaying = false;
-                if(mode == 3 && (buttons & Btn_CIRCLE) && !(prevButtons & Btn_CIRCLE)) { 
-                    trajectoryStartFrame = currentFrame;
-                    isTrajectoryPlaying = true;
-                }
-
-                if(isTrajectoryPlaying) movePos = glm::vec3(GetTrajectoryPoint(currentFrame - trajectoryStartFrame));
-                if(isTrajectoryPlaying && !IsTrajectoryPlaying(currentFrame - trajectoryStartFrame)) isTrajectoryPlaying = false;
-
-                if(savedTrajectories.size() > 0 && mode == 2) {
-                    glm::vec3 pt = GetSelectedPoint();
-                    movePos.x = pt.x;
-                    movePos.y = pt.y;
-                    movePos.z = pt.z;
-                }
-
                 if(buttons & Btn_SQUARE && !(prevButtons & Btn_SQUARE)) SelectPrevPoint();
                 if(buttons & Btn_TRIANGLE && !(prevButtons & Btn_TRIANGLE)) SelectNextPoint();
                 if(buttons & Btn_PS && !(prevButtons & Btn_PS)) angleChangeMode ^= 1;
@@ -320,6 +304,41 @@ void localVideoUpdateThreadProc() { // Самые цыганские фокус�
                 armPos.x = movePos.x;
                 armPos.y = movePos.y;
                 armPos.z = movePos.z;
+
+
+                if(mode == 1 && buttons & Btn_CROSS && !(prevButtons & Btn_CROSS)) AddPoint(movePos, angle4, angle5, angleGrabber);
+
+                if(mode == 3 && (buttons & Btn_CROSS) && !(prevButtons & Btn_CROSS)) StartTrajectory();
+                if(mode == 3 && (buttons & Btn_CROSS)) AddTrajectoryPoint(movePos, angle4, angle5, angleGrabber);
+                if(mode == 3 && !(buttons & Btn_CROSS) && (prevButtons & Btn_CROSS)) SaveTrajectory();
+
+                if(mode == 2) isTrajectoryPlaying = false;
+                if(mode == 3 && (buttons & Btn_CIRCLE) && !(prevButtons & Btn_CIRCLE)) { 
+                    trajectoryStartFrame = currentFrame;
+                    isTrajectoryPlaying = true;
+                }
+
+                if(isTrajectoryPlaying) {
+                    ArmTrajectoryPoint pt = GetTrajectoryPoint(currentFrame - trajectoryStartFrame);
+                    movePos.x = pt.pos.x;
+                    movePos.y = pt.pos.y;
+                    movePos.z = pt.pos.z;
+                    angle4 = pt.angle4;
+                    angle5 = pt.angle5;
+                    angleGrabber = pt.angleGrabber;
+                }
+                if(isTrajectoryPlaying && !IsTrajectoryPlaying(currentFrame - trajectoryStartFrame)) isTrajectoryPlaying = false;
+
+                if(savedTrajectories.size() > 0 && mode == 2) {
+                    ArmTrajectoryPoint pt = GetSelectedPoint();
+                    movePos.x = pt.pos.x;
+                    movePos.y = pt.pos.y;
+                    movePos.z = pt.pos.z;
+                    angle4 = pt.angle4;
+                    angle5 = pt.angle5;
+                    angleGrabber = pt.angleGrabber;
+                }
+
 
                 printf("move control yes\n");
                 currentFrame++;

@@ -6,5 +6,5 @@ client:
 	-L ~/opencv3/opencv/build/lib/ \
 	-L /usr/local/lib/aarch64-linux-gnu/ \
 	-L /usr/lib/aarch64-linux-gnu/ \
-	-l gtk-3 -l GL -l GLU -l epoxy -l glfw -l psmoveapi -l psmoveapi_tracker -l opencv_core -l opencv_videoio -l opencv_imgproc -l opencv_highgui \
+	-l gtk-3 -l GL -l GLU -l epoxy -l psmoveapi -l psmoveapi_tracker -l opencv_core -l opencv_videoio -l opencv_imgproc -l opencv_highgui \
 	`pkg-config --cflags --libs gtk+-3.0`

@@ -9,7 +9,7 @@
 ```
 sudo apt install cmake git
 ```
-### 2. Установка OpenCV 3.
+### 2. Установка OpenCV 3.300
 Откройте терминал и поочерёдно введите команды:
 ```sh
 mkdir ~/opencv3 && cd ~/opencv3
