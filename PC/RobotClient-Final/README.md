@@ -17,9 +17,9 @@ sudo make install
 ```
 Откройте терминал и введите:
 ```sh
-sudo apt install git g++-8 python3 build-essential cmake git pkg-config libgtk-3-dev libavcodec-dev libavformat-dev libswscale-dev libv4l-dev libxvidcore-dev libx264-dev libjpeg-dev libpng-dev libtiff-dev gfortran openexr libatlas-base-dev python3-dev python3-numpy libtbb2 libtbb-dev libdc1394-22-dev libudev-dev libbluetooth-dev libusb-dev libhidapi-dev
+sudo apt install git g++-8 python3 build-essential cmake git pkg-config libgtk-3-dev libavcodec-dev libavformat-dev libswscale-dev libv4l-dev libxvidcore-dev libx264-dev libjpeg-dev libpng-dev libtiff-dev gfortran openexr libatlas-base-dev python3-dev python3-numpy libtbb2 libtbb-dev libdc1394-22-dev libudev-dev libbluetooth-dev libusb-dev libhidapi-dev libglm-dev libepoxy-dev portaudio19-dev
 ```
-### 2. Установка OpenCV 3.300
+### 2. Установка OpenCV 3.
 Откройте терминал и поочерёдно введите команды:
 ```sh
 mkdir ~/opencv3 && cd ~/opencv3
@@ -33,9 +33,12 @@ git checkout 3.3.1
 cd ..
 cd opencv
 mkdir build && cd build
-cmake -D CMAKE_BUILD_TYPE=RELEASE \
+cmake -DCMAKE_C_COMPILER="/usr/bin/gcc-8" \
+      -DCMAKE_CXX_COMPILER="/usr/bin/g++-8" \
+      -D CMAKE_BUILD_TYPE=RELEASE \
       -D CMAKE_INSTALL_PREFIX=/usr/local \
       -D WITH_V4L=ON \
+      -D WITH_LIBV4L=ON \
       -D OPENCV_EXTRA_MODULES_PATH=../../opencv_contrib/modules \
       -WITH_GTK=ON \
       -WITH_QT=OFF ..
@@ -50,8 +53,8 @@ git clone --recursive https://github.com/thp/psmoveapi.git
 cd psmoveapi
 bash scripts/install_dependencies.sh
 mkdir build && cd build
-cmake -DCMAKE_C_COMPILER="/usr/bin/gcc-8"
-      -DCMAKE_CXX_COMPILER="/usr/bin/g++-8"
+cmake -DCMAKE_C_COMPILER="/usr/bin/gcc-8" \
+      -DCMAKE_CXX_COMPILER="/usr/bin/g++-8" \
       -DPSMOVE_USE_PSEYE=ON ..
 make -j$(nproc)
 sudo make install
@@ -60,6 +63,7 @@ sudo make install
 Откройте терминал и поочерёдно введите команды:
 ```
 cd
+pip3 install SpeechRecognition fuzzywuzzy pyaudio
 git clone https://github.com/dex22044/RobotArm
 cd RobotArm/PC/RobotClient-Final
 make
