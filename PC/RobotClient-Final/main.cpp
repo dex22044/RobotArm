@@ -649,7 +649,7 @@ int main(int argc, char** argv) {
 
     gtk_widget_show(GTK_WIDGET(window));
 
-    voiceSocket = popen("/usr/bin/python3 /home/dex22044/RobotArm/PC/RobotClient-Final/speech.py", "r");
+    voiceSocket = popen("/usr/bin/python3 speech.py", "r");
     printf("ass\n");
 
     g_signal_connect(window, "destroy", G_CALLBACK(quit), NULL);
