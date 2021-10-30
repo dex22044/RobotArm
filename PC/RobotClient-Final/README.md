@@ -17,7 +17,7 @@ sudo make install
 ```
 Откройте терминал и введите:
 ```sh
-sudo apt install git g++-10 python3 build-essential cmake git pkg-config libgtk-3-dev libavcodec-dev libavformat-dev libswscale-dev libv4l-dev libxvidcore-dev libx264-dev libjpeg-dev libpng-dev libtiff-dev gfortran openexr libatlas-base-dev python3-dev python3-numpy libtbb2 libtbb-dev libdc1394-22-dev libudev-dev libbluetooth-dev libusb-dev libhidapi-dev
+sudo apt install git g++-8 python3 build-essential cmake git pkg-config libgtk-3-dev libavcodec-dev libavformat-dev libswscale-dev libv4l-dev libxvidcore-dev libx264-dev libjpeg-dev libpng-dev libtiff-dev gfortran openexr libatlas-base-dev python3-dev python3-numpy libtbb2 libtbb-dev libdc1394-22-dev libudev-dev libbluetooth-dev libusb-dev libhidapi-dev
 ```
 ### 2. Установка OpenCV 3.
 Откройте терминал и поочерёдно введите команды:
@@ -49,7 +49,12 @@ mkdir ~/psmoveapi && cd ~/psmoveapi
 git clone --recursive https://github.com/thp/psmoveapi.git
 cd psmoveapi
 bash scripts/install_dependencies.sh
-bash scripts/linux/build-debian
+mkdir build && cd build
+cmake -DCMAKE_C_COMPILER="/usr/bin/gcc-8"
+      -DCMAKE_CXX_COMPILER="/usr/bin/g++-8"
+      -DPSMOVE_USE_PSEYE=ON ..
+make -j$(nproc)
+sudo make install
 ```
 ### 4. Установка этой проги.
 Откройте терминал и поочерёдно введите команды:
