@@ -1,5 +1,5 @@
 client:
-	g++ -o app.bin -std=c++17 \
+	g++-8 -o app.bin -std=c++17 \
 	main.cpp motorInterface.cpp \
 	-I /usr/local/include/psmoveapi \
 	-I /usr/include/glm/ \
