@@ -92,11 +92,16 @@ void remoteVideoUpdateThreadProc() {
 
 void ComputeAngles();
 
-class ArmTrajectoryPoint {
+struct ArmTrajectoryPoint {
 public:
     glm::vec3 pos;
     float angle4 = 0, angle5 = 0, angleGrabber = 0;
-    ArmTrajectoryPoint(glm::vec3 pos, float a4, float a5, float ag) : pos(pos), angle4(a4), angle5(a5), angleGrabber(ag) {};
+    ArmTrajectoryPoint(glm::vec3 pos, float a4, float a5, float ag) {
+        this->pos = glm::vec3(pos);
+        this->angle4 = a4;
+        this->angle5 = a5;
+        this->angleGrabber = ag;
+    };
 };
 
 class ArmTrajectory {
@@ -129,32 +134,42 @@ glm::vec3 Lerp(glm::vec3 start, glm::vec3 end, float t) {
 
 #pragma region Grab shit
 
-glm::vec3 boltPoint = glm::vec3(-8.71, -1.79, -4.24); // Положение болта
+glm::vec3 markerPoint = glm::vec3(-6.69, -0.83, 13.20); // Положение маркера
 
-void GrabBolt() { // Цыганские фокусы (взять болт)
+void GrabMarker() { // Цыганские фокусы (взять болт)
     int prevMode = mode;
-    mode = 3;
+    mode = 4;
 
     angle5 = 0;
     angleGrabberAuto = 0;
     usleep(300000);
-    autoPos = glm::vec3(boltPoint - glm::vec3(0, 5, 0));
+    autoPos = glm::vec3(markerPoint - glm::vec3(0, 3, 0));
     usleep(10000000);
-    autoPos = glm::vec3(boltPoint);
+    autoPos = glm::vec3(markerPoint);
     usleep(1000000);
     angleGrabberAuto = 100;
     usleep(1000000);
-    autoPos = glm::vec3(boltPoint - glm::vec3(0, 5, 0));
+    autoPos = glm::vec3(markerPoint - glm::vec3(0, 3, 0));
     usleep(1000000);
 
     mode = 1;
 }
 
-void ReleaseBolt() { // Цыганские фокусы (отпустить болт)
+void ReleaseMarker() { // Цыганские фокусы (отпустить болт)
     int prevMode = mode;
-    mode = 3;
+    mode = 4;
 
-
+    angle5 = 0;
+    angleGrabberAuto = 110;
+    usleep(300000);
+    autoPos = glm::vec3(markerPoint - glm::vec3(0, 3, 0));
+    usleep(10000000);
+    autoPos = glm::vec3(markerPoint);
+    usleep(1000000);
+    angleGrabberAuto = 0;
+    usleep(1000000);
+    autoPos = glm::vec3(markerPoint - glm::vec3(0, 3, 0));
+    usleep(1000000);
 
     mode = 1;
 }
@@ -165,9 +180,10 @@ void voiceUpdaterThreadProc() { // Поток с петухоном и расп�
     char speechRecv = -1;
     while(true) {
         if(fread(&speechRecv, 1, 1, voiceSocket) > 0) {
-            if(mode == 0) continue;
+            if(true) continue;
             printf("%c\n", speechRecv);
-            if(speechRecv == '3') GrabBolt();
+            if(speechRecv == '4') ReleaseMarker();
+            if(speechRecv == '5') GrabMarker();
         }
     }
 }
@@ -175,7 +191,7 @@ void voiceUpdaterThreadProc() { // Поток с петухоном и расп�
 #pragma region Positioning shit
 void AddPoint(glm::vec3 point, float a4, float a5, float ag) {
     ArmTrajectory* trj = new ArmTrajectory(true);
-    currentTrajectory->points.push_back(ArmTrajectoryPoint(glm::vec3(point), a4, a5, ag));
+    trj->points.push_back(ArmTrajectoryPoint(glm::vec3(point), a4, a5, ag));
     savedTrajectories.push_back(trj);
     char textbuf[64];
     snprintf(textbuf, 64, "Точка %d (%2.2f, %2.2f, %2.2f)", savedTrajectories.size(), point.x, point.y, point.z);
@@ -258,7 +274,7 @@ void localVideoUpdateThreadProc() { // Самые цыганские фокус�
         PSMoveTrackerRGBImage image = psmove_tracker_get_image(localCam); // Получить матрицу с картинкой с камерой
 
         cnt++;
-        if(cnt >= 1 && selectedController != NULL) { // Это условный оператор, понятно?
+        if(cnt >= 0 && selectedController != NULL) { // Это условный оператор, понятно?
             while(psmove_poll(selectedController)); // Получить данные с PSMove
             trigger = psmove_get_trigger(selectedController);
             psmove_fusion_get_position(localCamFusion, selectedController, &movePos.x, &movePos.y, &movePos.z);
@@ -291,22 +307,17 @@ void localVideoUpdateThreadProc() { // Самые цыганские фокус�
                     if(angle4 > 180) angle4 = 180;
                 }
                 else {
-                    if(buttons & Btn_START) angle5+= 3;
-                    if(buttons & Btn_SELECT) angle5 -= 3;
+                    if(buttons & Btn_START) angle5+= 10;
+                    if(buttons & Btn_SELECT) angle5 -= 10;
                     if(angle5 < 0) angle5 = 0;
                     if(angle5 > 180) angle5 = 180;
                 }
 
-                prevButtons = buttons;
-
                 angleGrabber = map_val(trigger, 0, 255, 110, 0);
 
-                armPos.x = movePos.x;
-                armPos.y = movePos.y;
-                armPos.z = movePos.z;
-
-
-                if(mode == 1 && buttons & Btn_CROSS && !(prevButtons & Btn_CROSS)) AddPoint(movePos, angle4, angle5, angleGrabber);
+                if(mode == 1 && buttons & Btn_CROSS && !(prevButtons & Btn_CROSS)) {
+                    AddPoint(movePos, angle4, angle5, angleGrabber);
+                }
 
                 if(mode == 3 && (buttons & Btn_CROSS) && !(prevButtons & Btn_CROSS)) StartTrajectory();
                 if(mode == 3 && (buttons & Btn_CROSS)) AddTrajectoryPoint(movePos, angle4, angle5, angleGrabber);
@@ -330,7 +341,7 @@ void localVideoUpdateThreadProc() { // Самые цыганские фокус�
                 if(isTrajectoryPlaying && !IsTrajectoryPlaying(currentFrame - trajectoryStartFrame)) isTrajectoryPlaying = false;
 
                 if(savedTrajectories.size() > 0 && mode == 2) {
-                    ArmTrajectoryPoint pt = GetSelectedPoint();
+                    ArmTrajectoryPoint pt = GetTrajectoryPoint(0);
                     movePos.x = pt.pos.x;
                     movePos.y = pt.pos.y;
                     movePos.z = pt.pos.z;
@@ -339,6 +350,11 @@ void localVideoUpdateThreadProc() { // Самые цыганские фокус�
                     angleGrabber = pt.angleGrabber;
                 }
 
+                prevButtons = buttons;
+
+                armPos.x = movePos.x;
+                armPos.y = movePos.y;
+                armPos.z = movePos.z;
 
                 printf("move control yes\n");
                 currentFrame++;
@@ -412,7 +428,7 @@ GLdouble triangleVerts[] = {
 };
 
 void ComputeAngles() {
-    finArmPos *= 20;
+    finArmPos *= 10;
     float y = clamp(finArmPos.y, -cylinderH / 2.0f, cylinderH / 2.0f);
     float a = 215;
     float b = 160;
