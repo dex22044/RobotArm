@@ -180,7 +180,7 @@ void voiceUpdaterThreadProc() { // Поток с петухоном и расп�
     char speechRecv = -1;
     while(true) {
         if(fread(&speechRecv, 1, 1, voiceSocket) > 0) {
-            if(mode != 0) continue;
+            if(mode == 0) continue;
             printf("%c\n", speechRecv);
             if(speechRecv == '4') ReleaseMarker();
             if(speechRecv == '5') GrabMarker();
